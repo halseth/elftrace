@@ -6,10 +6,15 @@ use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
 use risc0_zkvm_platform::syscall::reg_abi::{REG_A5, REG_GP, REG_RA, REG_S0, REG_SP};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
+use rrs_lib::{instruction_string_outputter::InstructionStringOutputter, process_instruction};
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{env, fs};
+
+mod processor;
+
+use processor::BitcoinInstructionProcessor;
 
 fn main() {
     println!("Hello, world!");
@@ -67,6 +72,15 @@ fn main() {
 
                 //let opcode = OpCode::decode(*insn, *pc).unwrap();
                 //println!("next opcode {:?}", opcode);
+                if *pc == 0x10098 {
+                    let mut outputter = BitcoinInstructionProcessor {
+                        insn_pc: *pc,
+                        start_addr: GUEST_MIN_MEM as u32,
+                        mem_len: mem_len as u32,
+                    };
+                    let desc = process_instruction(&mut outputter, *insn).unwrap();
+                    println!("{}", desc);
+                }
             }
             TraceEvent::RegisterSet { idx, value } => {
                 set_register(&mut mem_tree, *idx, *value);

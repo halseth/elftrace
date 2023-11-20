@@ -10,5 +10,6 @@ risc0-zkvm = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm", features = ["
 risc0-zkvm-platform = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm/platform"}
 fast_merkle = {path = "/Users/johan.halseth/code/fast_merkle"}
 rs_merkle = "1.4.1"
+rrs-lib = "0.1"
 bitcoin = "0.31.0"
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }

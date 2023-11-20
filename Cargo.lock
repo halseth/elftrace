@@ -405,6 +405,7 @@ dependencies = [
  "hex",
  "risc0-zkvm",
  "risc0-zkvm-platform",
+ "rrs-lib",
  "rs_merkle",
 ]
 
