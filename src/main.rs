@@ -8,6 +8,8 @@ use risc0_zkvm_platform::syscall::reg_abi::{REG_A5, REG_GP, REG_RA, REG_S0, REG_
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::{instruction_string_outputter::InstructionStringOutputter, process_instruction};
 
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{env, fs};
@@ -61,35 +63,74 @@ fn main() {
     );
 
     let mut ins = 0;
+    let mut roots: Vec<[u8; 32]> = vec![start_root];
+
+    // We'll keep two active merkle trees in order to prove the state of the computation before and
+    // after each instruction.
+    let mut pre_tree = mem_tree;
+    let mut post_tree = pre_tree.clone();
+
+    // (pc, insn)
+    let mut current_insn: (u32, u32) = (0, 0);
+
+    // Now we go through the trace once again, this time creating the scripts and witnesses for
+    // each state transition.
+    ins = 0;
     for (i, e) in trace.lock().unwrap().iter().enumerate() {
         //println!("iteration[{}]={:?}", i, e);
         match e {
+            // A new instruction is starting.
             TraceEvent::InstructionStart { cycle, pc, insn } => {
-                set_register(&mut mem_tree, REG_MAX, *pc);
-                let root = mem_tree.commit();
-                println!("new root[{}]={}", ins, hex::encode(root));
+                // Set the new PC and get a state commitment. This will be the state of computation
+                // before this instruction is executed, hence the post-state of the previous instruction.
+                set_register(&mut post_tree, REG_MAX, *pc);
+                let root = post_tree.commit();
+                roots.push(root);
+
+                println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
                 ins += 1;
 
                 //let opcode = OpCode::decode(*insn, *pc).unwrap();
                 //println!("next opcode {:?}", opcode);
-                if *pc == 0x10098 {
+                let pcc = current_insn.0;
+                if pcc == 0x10098 {
                     let mut outputter = BitcoinInstructionProcessor {
-                        insn_pc: *pc,
+                        insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
                         mem_len: mem_len as u32,
+                        pre_tree: pre_tree.clone(),
+                        post_tree: post_tree.clone(),
                     };
-                    let desc = process_instruction(&mut outputter, *insn).unwrap();
-                    println!("{}", desc);
+                    let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
+                    //println!("{}", desc);
+
+                    let mut script_file = File::create(format!("pc_{:x}_script.txt", pcc)).unwrap();
+                    write!(script_file, "{}", desc.script);
+
+                    let mut witness_file = File::create(format!("pc_{:x}_witness.txt", pcc)).unwrap();
+                    write!(witness_file, "{}", desc.witness.join("\n"));
+
+                    // Start and  end root alwyas first in the witness.
+                    //let witness = vec![];
                 }
+
+                // Now that we've handled the previous instruction, set things up for processing
+                // the next.
+                current_insn = (*pc, *insn);
+                pre_tree = post_tree;
+                post_tree = pre_tree.clone();
+
+                //prev_root = root.clone();
             }
             TraceEvent::RegisterSet { idx, value } => {
-                set_register(&mut mem_tree, *idx, *value);
+                set_register(&mut post_tree, *idx, *value);
             }
             TraceEvent::MemorySet { addr, value } => {
-                set_addr(&mut mem_tree, (*addr) as usize, *value);
+                set_addr(&mut post_tree, (*addr) as usize, *value);
             }
         }
     }
+
 
     let root = mem_tree.commit();
     println!("final root[{}]={}", ins, hex::encode(root));
@@ -153,8 +194,9 @@ fn to_script_num(b: [u8; 4]) -> Vec<u8> {
     script_num[..n].to_vec()
 }
 fn set_commit(fast_tree: &mut Tree, addr: usize, b: [u8; 4]) {
-    let script_num = to_script_num(b);
+    let script_num = to_script_num(b.clone());
     let index = addr_to_index(addr);
+    println!("converting addr {}={} for commit->{}", addr, hex::encode(b), hex::encode(script_num.clone()));
 
     fast_tree.set_leaf(index, script_num);
 }

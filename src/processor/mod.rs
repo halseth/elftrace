@@ -1,7 +1,8 @@
 #![allow(unused)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
-use risc0_zkvm_platform::memory::SYSTEM;
+use bitcoin::script::write_scriptint;
+use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
 use risc0_zkvm_platform::WORD_SIZE;
 use rrs_lib::instruction_formats::{BType, IType, ITypeShamt, JType, RType, SType, UType};
@@ -17,6 +18,8 @@ pub struct BitcoinInstructionProcessor {
 
     pub start_addr: u32,
     pub mem_len: u32,
+    pub pre_tree: fast_merkle::Tree,
+    pub post_tree: fast_merkle::Tree,
 }
 
 impl BitcoinInstructionProcessor {
@@ -47,6 +50,10 @@ impl BitcoinInstructionProcessor {
         (SYSTEM.start() + reg * WORD_SIZE) as u32
     }
 
+    fn addr_to_index(addr: usize) -> usize {
+        (addr - GUEST_MIN_MEM) / WORD_SIZE
+    }
+
     fn merkle_inclusion(path: &Vec<bool>) -> String {
         let mut scr = format!(
             "
@@ -67,10 +74,24 @@ impl BitcoinInstructionProcessor {
 
         scr
     }
+
+    fn to_script_num(b: [u8; 4]) -> Vec<u8> {
+        let w = u32::from_le_bytes(b);
+
+        let mut script_num: [u8; 8] = [0; 8];
+        let n = write_scriptint(&mut script_num, w as i64);
+
+        script_num[..n].to_vec()
+    }
+}
+
+pub struct Script {
+    pub script: String,
+    pub witness: Vec<String>,
 }
 
 impl InstructionProcessor for BitcoinInstructionProcessor {
-    type InstructionResult = String;
+    type InstructionResult = Script;
 
     fn process_add(&mut self, dec_insn: RType) -> Self::InstructionResult {
         todo!()
@@ -121,6 +142,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             println!("bit: {}", b);
         }
 
+        let pc_start = Self::to_script_num((self.insn_pc).to_le_bytes());
+        println!("converting pc {} for script->{}", hex::encode((self.insn_pc).to_le_bytes()), hex::encode(pc_start.clone()));
+        let pc_end = Self::to_script_num((self.insn_pc + 4).to_le_bytes());
+        let imm = Self::to_script_num(dec_insn.imm.to_le_bytes());
+
         let rd_addr = Self::reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
@@ -129,7 +155,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        format!(
+        let script = format!(
             "
         # top stack elements are start and end  merkle roots, check that they matches commitment.
         OP_2DUP OP_CAT OP_SHA256
@@ -221,15 +247,61 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             //        # If this all checks out, state transition was valid.
             //        OP_1
             //        ",
-            hex::encode(self.insn_pc.to_le_bytes()),
+            hex::encode(pc_start.clone()),
             pc_incl,
-            hex::encode((self.insn_pc + 4).to_le_bytes()),
+            hex::encode(pc_end.clone()),
             pc_incl,
             rs1_incl,
-            dec_insn.imm,
+            hex::encode(imm),
             rd_incl,
             //dec_insn.imm, rd_incl, pc_incl,
-        )
+        );
+
+        let start_root = self.pre_tree.root();
+        let end_root = self.post_tree.root();
+
+        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        println!("proof that PC is {}:", hex::encode(pc_start));
+        for p in start_pc_proof.clone() {
+            println!("{}:", hex::encode(p));
+        }
+
+        let end_pc_proof = self.post_tree.proof(pc_index, pc_end).unwrap();
+
+        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_val = self.pre_tree.get_leaf(rs1_index);
+        let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_val = self.post_tree.get_leaf(rd_index);
+        let rd_proof = self.post_tree.proof(rd_index, rd_val).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        for p in end_pc_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(hex::encode(rs1_val));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        Script {
+            script: script,
+            witness: witness.into_iter().rev().collect(),
+        }
     }
 
     fn process_slli(&mut self, dec_insn: ITypeShamt) -> Self::InstructionResult {
