@@ -1,0 +1,264 @@
+
+        # top stack elements are start and end  merkle roots, check that they matches commitment.
+        OP_2DUP OP_CAT OP_SHA256
+        OP_0 # index
+        OP_0 # nums key
+        81 # current taptree
+        OP_1 # flags, check input
+        OP_CHECKCONTRACTVERIFY
+
+        # push roots to alt stack
+        OP_TOALTSTACK OP_TOALTSTACK
+
+        # put pc on stack, check that it committed to in he root
+        980001
+
+        # on stack is merkle proof for pc register. We already know the location in RAM, so only
+        # nodes are needed.
+        
+        # On stack is element checked for inclusion, and path.
+        # Hash element
+        OP_SHA256
+        OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+
+
+        # Check that it matches start root.
+        OP_FROMALTSTACK
+        OP_FROMALTSTACK
+        OP_DUP
+        OP_TOALTSTACK
+        OP_SWAP
+        OP_TOALTSTACK
+        OP_EQUALVERIFY
+
+        # increment pc+4 and verify it againt root
+        9c0001
+        
+        # On stack is element checked for inclusion, and path.
+        # Hash element
+        OP_SHA256
+        OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+
+        # Check that it matches end root.
+        OP_FROMALTSTACK
+        OP_DUP
+        OP_TOALTSTACK
+        OP_EQUALVERIFY
+
+        # load register(s) from root
+
+        # rs value on stack
+        OP_DUP
+        OP_TOALTSTACK
+
+        # verify rs value against start root.
+        
+        # On stack is element checked for inclusion, and path.
+        # Hash element
+        OP_SHA256
+        OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+
+
+        OP_FROMALTSTACK # rs val
+        OP_FROMALTSTACK # end root
+        OP_FROMALTSTACK # startroot
+
+        OP_DUP
+        OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+
+        OP_EQUALVERIFY
+
+
+        # perform addition
+        20 #imm
+        OP_FROMALTSTACK
+        OP_ADD
+
+        # verify result against end root
+        
+        # On stack is element checked for inclusion, and path.
+        # Hash element
+        OP_SHA256
+        OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+
+
+        OP_FROMALTSTACK
+        OP_DUP
+        OP_TOALTSTACK
+        OP_EQUALVERIFY
+
+        OP_1

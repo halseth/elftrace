@@ -1,6 +1,6 @@
 use bitcoin::script::write_scriptint;
 use fast_merkle::Tree;
-//use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
+use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
@@ -90,10 +90,10 @@ fn main() {
                 println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
                 ins += 1;
 
-                //let opcode = OpCode::decode(*insn, *pc).unwrap();
-                //println!("next opcode {:?}", opcode);
+                let opcode = OpCode::decode(*insn, *pc).unwrap();
+                println!("next opcode {:?}", opcode);
                 let pcc = current_insn.0;
-                if pcc == 0x10098 {
+                if pcc == 0x10098 || pcc == 0x10094 {
                     let mut outputter = BitcoinInstructionProcessor {
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
@@ -107,7 +107,8 @@ fn main() {
                     let mut script_file = File::create(format!("pc_{:x}_script.txt", pcc)).unwrap();
                     write!(script_file, "{}", desc.script);
 
-                    let mut witness_file = File::create(format!("pc_{:x}_witness.txt", pcc)).unwrap();
+                    let mut witness_file =
+                        File::create(format!("pc_{:x}_witness.txt", pcc)).unwrap();
                     write!(witness_file, "{}", desc.witness.join("\n"));
 
                     // Start and  end root alwyas first in the witness.
@@ -131,8 +132,7 @@ fn main() {
         }
     }
 
-
-    let root = mem_tree.commit();
+    let root = post_tree.commit();
     println!("final root[{}]={}", ins, hex::encode(root));
 }
 
@@ -163,6 +163,7 @@ fn guest_mem_len() -> usize {
 }
 
 fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
+    println!("register {} (SP={}) set to {}", reg, reg == REG_SP, val);
     let sys_addr = SYSTEM.start();
     let addr = sys_addr + (reg * WORD_SIZE);
 
@@ -196,7 +197,12 @@ fn to_script_num(b: [u8; 4]) -> Vec<u8> {
 fn set_commit(fast_tree: &mut Tree, addr: usize, b: [u8; 4]) {
     let script_num = to_script_num(b.clone());
     let index = addr_to_index(addr);
-    println!("converting addr {}={} for commit->{}", addr, hex::encode(b), hex::encode(script_num.clone()));
+    println!(
+        "converting addr {}={} for commit->{}",
+        addr,
+        hex::encode(b),
+        hex::encode(script_num.clone())
+    );
 
     fast_tree.set_leaf(index, script_num);
 }
