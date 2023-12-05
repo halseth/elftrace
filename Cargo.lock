@@ -407,6 +407,7 @@ dependencies = [
  "risc0-zkvm-platform",
  "rrs-lib",
  "rs_merkle",
+ "serde_json",
 ]
 
 [[package]]

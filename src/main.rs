@@ -111,6 +111,13 @@ fn main() {
                         File::create(format!("pc_{:x}_witness.txt", pcc)).unwrap();
                     write!(witness_file, "{}", desc.witness.join("\n"));
 
+                    let mut tags_file =
+                        File::create(format!("pc_{:x}_tags.json", pcc)).unwrap();
+
+                    let mut writer = BufWriter::new(tags_file);;
+                    serde_json::to_writer_pretty(writer, &desc.tags).unwrap();
+
+
                     // Start and  end root alwyas first in the witness.
                     //let witness = vec![];
                 }

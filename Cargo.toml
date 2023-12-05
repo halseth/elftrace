@@ -13,3 +13,4 @@ rs_merkle = "1.4.1"
 rrs-lib = "0.1"
 bitcoin = "0.31.0"
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
+serde_json = "1.0.108"
