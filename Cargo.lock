@@ -408,6 +408,7 @@ dependencies = [
  "rrs-lib",
  "rs_merkle",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
