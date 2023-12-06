@@ -99,8 +99,8 @@ fn main() {
                 let opcode = OpCode::decode(*insn, *pc).unwrap();
                 println!("next opcode {:?}", opcode);
                 let pcc = current_insn.0;
-                if pcc == 0x10098 {
-                //    if pcc == 0x10094 {
+                //if pcc == 0x10098 {
+                    if pcc == 0x10094 {
                     let mut outputter = BitcoinInstructionProcessor {
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,

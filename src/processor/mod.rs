@@ -431,34 +431,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         "
         );
 
-        // Verify start PC and amend to pc+4,
-        script = format!(
-            "{}
-        {} # pc
-        {} # pc+2
 
-        # pc inclusion
-        {}
-
-        #OP_1
-        ",
-            script,
-            hex::encode(pc_start.clone()),
-            hex::encode(pc_end.clone()),
-            self.amend_register(REG_MAX, 1),
-        );
-
-        // new root on stack.
-        script = format!(
-            "{}
-        # current root to alt stack
-        OP_TOALTSTACK
-        ",
-            script,
-        );
-
-
-        // rs on stack, verify against new root on alt stack.
+        // rs on stack, verify against start root on alt stack.
         script = format!(
             "{}
         # rs on stack
@@ -470,18 +444,43 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             self.register_inclusion_script(dec_insn.rs1, 2),
         );
 
-   script = format!(
-       "{}
+        script = format!(
+            "{}
            # perform addition
            {} #imm
            OP_FROMALTSTACK
            OP_ADD
 
-           # verify result against end root
+           # build root
            {}
 
-    # end root on stack
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            hex::encode(imm),
+            self.amend_register(dec_insn.rd, 1),
+        );
 
+
+// Verify start PC and amend to pc+4,
+        script = format!(
+            "{}
+
+        {} # pc
+        {} # pc+2
+
+        # pc inclusion
+        {}
+        ",
+            script,
+            hex::encode(pc_start.clone()),
+            hex::encode(pc_end.clone()),
+            self.amend_register(REG_MAX, 1),
+        );
+
+        script = format!(
+       "{}
             # check input commitment
        OP_FROMALTSTACK
         OP_DROP
@@ -497,9 +496,17 @@ OP_SHA256
            OP_1
 ",
        script,
-               hex::encode(imm),
-                self.amend_register(dec_insn.rd, 1),
            );
+
+
+        // new root on stack.
+      //  script = format!(
+      //      "{}
+      //  # current root to alt stack
+      //  OP_TOALTSTACK
+      //  ",
+      //      script,
+      //  );
 
         // TODO: cannot just put end root in witness, must build it from start root.
      //   let script = format!(
@@ -590,18 +597,6 @@ OP_SHA256
         let start_root = self.pre_tree.root();
         let end_root = self.post_tree.root();
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
-        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        println!("proof that PC is {}:", hex::encode(pc_start));
-        for p in start_pc_proof.clone() {
-            println!("{}:", hex::encode(p));
-        }
-
-        let end_pc_proof = self.post_tree.proof(pc_index, pc_end.clone()).unwrap();
-
-        self.pre_tree.set_leaf(pc_index, pc_end.clone());
-        self.pre_tree.commit();
 
         let rs1_index = Self::addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
@@ -613,13 +608,6 @@ OP_SHA256
         let mut witness = vec![hex::encode(start_root)];
         //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
 
-        for p in start_pc_proof.clone() {
-            witness.push(hex::encode(p))
-        }
-
-    //    for p in end_pc_proof {
-    //        witness.push(hex::encode(p))
-    //    }
 
         witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
         for p in rs1_proof {
@@ -645,6 +633,31 @@ OP_SHA256
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
+
+        self.pre_tree.set_leaf(rd_index, rd_mem.clone());
+        self.pre_tree.commit();
+
+        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        println!("proof that PC is {}:", hex::encode(pc_start));
+        for p in start_pc_proof.clone() {
+            println!("{}:", hex::encode(p));
+        }
+
+        let end_pc_proof = self.post_tree.proof(pc_index, pc_end.clone()).unwrap();
+
+        self.pre_tree.set_leaf(pc_index, pc_end.clone());
+        self.pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        //    for p in end_pc_proof {
+        //        witness.push(hex::encode(p))
+        //    }
+
 
         Script {
             script: script,
@@ -827,35 +840,7 @@ OP_SHA256
         "
         );
 
-        // Verify start PC and amend to pc+4,
-        // TODO: should really be validated last, in case the ibstruction reads/sets the value
-        script = format!(
-            "{}
-        {} # pc
-        {} # pc+2
-
-        # pc inclusion
-        {}
-
-        #OP_1
-        ",
-            script,
-            hex::encode(pc_start.clone()),
-            hex::encode(pc_end.clone()),
-            self.amend_register(REG_MAX, 1),
-        );
-
-        // new root on stack.
-        script = format!(
-            "{}
-        # current root to alt stack
-        OP_TOALTSTACK
-        ",
-            script,
-        );
-
-
-        // rs2 on stack, verify against new root on alt stack.
+        // rs2 on stack, verify against root on alt stack.
         script = format!(
             "{}
         # rs2 on stack
@@ -905,6 +890,7 @@ OP_SHA256
 
         // On stack: new root
         // alt stack: bits
+
 
         let mut script = format!(
             "{}
@@ -984,7 +970,6 @@ OP_SHA256
                 # get rs1 from alt stack
                 OP_FROMALTSTACK
                 OP_EQUALVERIFY
-
             ",
             script,
             hex::encode(offset.clone()),
@@ -993,14 +978,45 @@ OP_SHA256
         add_tag(offset.clone(), "address offset");
         add_tag(imm.clone(), "imm");
 
+        // new root on stack.
+        script = format!(
+            "{}
+        # current root to alt stack
+        OP_TOALTSTACK
+        ",
+            script,
+        );
+
+
+        // Verify start PC and amend to pc+4,
+        // TODO: should really be validated last, in case the ibstruction reads/sets the value
+        script = format!(
+            "{}
+        {} # pc
+        {} # pc+2
+
+        # pc inclusion
+        {}
+
+        #OP_1
+        ",
+            script,
+            hex::encode(pc_start.clone()),
+            hex::encode(pc_end.clone()),
+            self.amend_register(REG_MAX, 1),
+        );
+
+        // new root on stack.
+
+
         // on stack: new root
         // on alt stack: old root
         // verify input commitment
 
 script = format!(
     "{}
-OP_DROP # TODO: why is end root here?
        OP_FROMALTSTACK #
+OP_DROP # TODO: why ?
        OP_FROMALTSTACK #
         OP_CAT
 OP_SHA256
@@ -1044,16 +1060,6 @@ OP_1
 
         let mut witness = vec![hex::encode(start_root)];
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
-        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-        for p in start_pc_proof.clone() {
-            witness.push(hex::encode(p))
-        }
-
-
-
-        self.pre_tree.set_leaf(pc_index, pc_end.clone());
-        self.pre_tree.commit();
 
         let rs2_proof = self.pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
 
@@ -1091,6 +1097,20 @@ OP_1
             let p = sw_proof[i];
             witness.push(hex::encode(p))
         }
+
+        self.pre_tree.set_leaf(sw_index, rs2_val.clone());
+        self.pre_tree.commit();
+
+        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+
+        self.pre_tree.set_leaf(pc_index, pc_end.clone());
+        self.pre_tree.commit();
+
         // NEXT: prove rs1 pre-tree inclusion.
 
             //    for p in sw_proof.clone() {
