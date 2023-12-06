@@ -53,6 +53,14 @@ impl BitcoinInstructionProcessor {
 
         v
     }
+    fn witness_encode(data: Vec<u8>) -> String {
+        if data.len() == 0 {
+            return "<>".to_string();
+        }
+
+        hex::encode(data)
+    }
+
 
     pub fn reg_addr(reg: usize) -> u32 {
         (SYSTEM.start() + reg * WORD_SIZE) as u32
@@ -370,6 +378,21 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_addi(&mut self, dec_insn: IType) -> Self::InstructionResult {
+
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = self.pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = self.post_tree.root();
+        add_tag(end_root.to_vec(), "end_root");
+
+
         println!("pc is {:b}", self.insn_pc);
         let pc_addr = Self::reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
@@ -387,6 +410,10 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_end = Self::to_script_num(self.insn_pc + 4);
         let imm = Self::to_script_num(dec_insn.imm as u32);
 
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
         let rd_addr = Self::reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
@@ -395,89 +422,168 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        // TODO: cannot just put end root in witness, must build it from start root.
-        let script = format!(
+
+
+        let mut script = format!(
             "
-        # top stack elements are start and end  merkle roots, check that they matches commitment.
-        OP_2DUP OP_CAT OP_SHA256
+                # top stack elements is the start root, push it to altstack for later
+                OP_TOALTSTACK
+        "
+        );
+
+        // Verify start PC and amend to pc+4,
+        script = format!(
+            "{}
+        {} # pc
+        {} # pc+2
+
+        # pc inclusion
+        {}
+
+        #OP_1
+        ",
+            script,
+            hex::encode(pc_start.clone()),
+            hex::encode(pc_end.clone()),
+            self.amend_register(REG_MAX, 1),
+        );
+
+        // new root on stack.
+        script = format!(
+            "{}
+        # current root to alt stack
+        OP_TOALTSTACK
+        ",
+            script,
+        );
+
+
+        // rs on stack, verify against new root on alt stack.
+        script = format!(
+            "{}
+        # rs on stack
+        OP_DUP OP_TOALTSTACK
+        # rs inclusion
+        {}
+        ",
+            script,
+            self.register_inclusion_script(dec_insn.rs1, 2),
+        );
+
+   script = format!(
+       "{}
+           # perform addition
+           {} #imm
+           OP_FROMALTSTACK
+           OP_ADD
+
+           # verify result against end root
+           {}
+
+    # end root on stack
+
+            # check input commitment
+       OP_FROMALTSTACK
+        OP_DROP
+       OP_FROMALTSTACK
+        OP_CAT
+OP_SHA256
         OP_0 # index
         OP_0 # nums key
         81 # current taptree
         OP_1 # flags, check input
         OP_CHECKCONTRACTVERIFY
 
-        # push roots to alt stack
-        OP_TOALTSTACK OP_TOALTSTACK
-
-        # put pc on stack, check that it committed to in he root
-        {}
-
-        # on stack is merkle proof for pc register. We already know the location in RAM, so only
-        # nodes are needed.
-        {}
-
-        # Check that it matches start root.
-        OP_FROMALTSTACK
-        OP_FROMALTSTACK
-        OP_DUP
-        OP_TOALTSTACK
-        OP_SWAP
-        OP_TOALTSTACK
-        OP_EQUALVERIFY
-
-        # increment pc+4 and verify it againt root
-        {}
-        {}
-        # Check that it matches end root.
-        OP_FROMALTSTACK
-        OP_DUP
-        OP_TOALTSTACK
-        OP_EQUALVERIFY
-
-        # load register(s) from root
-
-        # rs value on stack
-        OP_DUP
-        OP_TOALTSTACK
-
-        # verify rs value against start root.
-        {}
-
-        OP_FROMALTSTACK # rs val
-        OP_FROMALTSTACK # end root
-        OP_FROMALTSTACK # startroot
-
-        OP_DUP
-        OP_TOALTSTACK
-        OP_SWAP OP_TOALTSTACK
-        OP_SWAP OP_TOALTSTACK
-
-        OP_EQUALVERIFY
-
-
-        # perform addition
-        {} #imm
-        OP_FROMALTSTACK
-        OP_ADD
-
-        # verify result against end root
-        {}
-
-        OP_FROMALTSTACK
-        OP_DUP
-        OP_TOALTSTACK
-        OP_EQUALVERIFY
-
-        OP_1
+           OP_1
 ",
-            hex::encode(pc_start.clone()),
-            pc_incl,
-            hex::encode(pc_end.clone()),
-            pc_incl,
-            rs1_incl,
-            hex::encode(imm),
-            rd_incl,
-        );
+       script,
+               hex::encode(imm),
+                self.amend_register(dec_insn.rd, 1),
+           );
+
+        // TODO: cannot just put end root in witness, must build it from start root.
+     //   let script = format!(
+     //       "
+     //   # top stack elements are start and end  merkle roots, check that they matches commitment.
+     //   OP_2DUP OP_CAT OP_SHA256
+     //   OP_0 # index
+     //   OP_0 # nums key
+     //   81 # current taptree
+     //   OP_1 # flags, check input
+     //   OP_CHECKCONTRACTVERIFY
+
+     //   # push roots to alt stack
+     //   OP_TOALTSTACK OP_TOALTSTACK
+
+     //   # put pc on stack, check that it committed to in he root
+     //   {}
+
+     //   # on stack is merkle proof for pc register. We already know the location in RAM, so only
+     //   # nodes are needed.
+     //   {}
+
+     //   # Check that it matches start root.
+     //   OP_FROMALTSTACK
+     //   OP_FROMALTSTACK
+     //   OP_DUP
+     //   OP_TOALTSTACK
+     //   OP_SWAP
+     //   OP_TOALTSTACK
+     //   OP_EQUALVERIFY
+
+     //   # increment pc+4 and verify it againt root
+     //   {}
+     //   {}
+     //   # Check that it matches end root.
+     //   OP_FROMALTSTACK
+     //   OP_DUP
+     //   OP_TOALTSTACK
+     //   OP_EQUALVERIFY
+
+     //   # load register(s) from root
+
+     //   # rs value on stack
+     //   OP_DUP
+     //   OP_TOALTSTACK
+
+     //   # verify rs value against start root.
+     //   {}
+
+     //   OP_FROMALTSTACK # rs val
+     //   OP_FROMALTSTACK # end root
+     //   OP_FROMALTSTACK # startroot
+
+     //   OP_DUP
+     //   OP_TOALTSTACK
+     //   OP_SWAP OP_TOALTSTACK
+     //   OP_SWAP OP_TOALTSTACK
+
+     //   OP_EQUALVERIFY
+
+
+     //   # perform addition
+     //   {} #imm
+     //   OP_FROMALTSTACK
+     //   OP_ADD
+
+     //   # verify result against end root
+     //   {}
+
+     //   OP_FROMALTSTACK
+     //   OP_DUP
+     //   OP_TOALTSTACK
+     //   OP_EQUALVERIFY
+
+     //   OP_1
+//",
+     //       hex::encode(pc_start.clone()),
+     //       pc_incl,
+     //       hex::encode(pc_end.clone()),
+     //       pc_incl,
+     //       rs1_incl,
+     //       hex::encode(imm),
+     //       rd_incl,
+     //   );
 
         // TODO: must verify no other memory location has been changed
 
@@ -492,37 +598,54 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             println!("{}:", hex::encode(p));
         }
 
-        let end_pc_proof = self.post_tree.proof(pc_index, pc_end).unwrap();
+        let end_pc_proof = self.post_tree.proof(pc_index, pc_end.clone()).unwrap();
+
+        self.pre_tree.set_leaf(pc_index, pc_end.clone());
+        self.pre_tree.commit();
 
         let rs1_index = Self::addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
         let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
 
-        let rd_index = Self::addr_to_index(rd_addr as usize);
-        let rd_val = self.post_tree.get_leaf(rd_index);
-        let rd_proof = self.post_tree.proof(rd_index, rd_val).unwrap();
 
         // We'll reverse it later.
-        let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
 
-        for p in end_pc_proof {
-            witness.push(hex::encode(p))
-        }
+    //    for p in end_pc_proof {
+    //        witness.push(hex::encode(p))
+    //    }
 
-        witness.push(hex::encode(rs1_val));
+        witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
         for p in rs1_proof {
             witness.push(hex::encode(p))
         }
 
+
+        let rs_val= read_scriptint(&rs1_val).unwrap();
+
+        // Value at rs1+imm will be memory address to store to.
+        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let pre_rd_val = self.pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs_val+ (dec_insn.imm as i64);
+        let rd_mem = Self::to_script_num(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+//        self.pre_tree.set_leaf(rd_index, rd_mem.clone());
+//        self.pre_tree.commit();
+
+        let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
 
-        let mut tags : HashMap<String, String> = HashMap::new();
         Script {
             script: script,
             witness: witness.into_iter().rev().collect(),
@@ -623,14 +746,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_sw(&mut self, dec_insn: SType) -> Self::InstructionResult {
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
-        let pc_path = self.addr_to_merkle(pc_addr);
-        let pc_incl = Self::merkle_inclusion(&pc_path);
-        for b in pc_path {
-            println!("bit: {}", b);
-        }
 
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
@@ -639,6 +754,21 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             }
             tags.insert(hex::encode(k), v.to_string());
         };
+
+        let start_root = self.pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = self.post_tree.root();
+        add_tag(end_root.to_vec(), "end_root");
+
+        println!("executing sw. pre={} post={}", hex::encode(start_root), hex::encode(end_root));
+        println!("dec_insn={:?}", dec_insn);
+        println!("pc is {:b}", self.insn_pc);
+        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+        for b in pc_path {
+            println!("bit: {}", b);
+        }
 
         let pc_start = Self::to_script_num(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
@@ -689,10 +819,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let sw_index = Self::addr_to_index(sw_addr as usize);
         let sw_path = self.addr_to_merkle(sw_addr as u32);
 
-        let start_root = self.pre_tree.root();
-        add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
-        add_tag(end_root.to_vec(), "end_root");
 
         let mut script = format!(
             "
@@ -702,6 +828,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         );
 
         // Verify start PC and amend to pc+4,
+        // TODO: should really be validated last, in case the ibstruction reads/sets the value
         script = format!(
             "{}
         {} # pc
@@ -923,13 +1050,6 @@ OP_1
             witness.push(hex::encode(p))
         }
 
-        fn witness_encode(data: Vec<u8>) -> String {
-            if data.len() == 0 {
-                return "<>".to_string();
-            }
-
-            hex::encode(data)
-        }
 
 
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
@@ -938,7 +1058,7 @@ OP_1
         let rs2_proof = self.pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
 
 
-        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        witness.push(format!("{}", Self::witness_encode(rs2_val.clone())));
         for p in rs2_proof.clone() {
             witness.push(hex::encode(p))
         }
@@ -958,7 +1078,7 @@ OP_1
             sw_addr, sw_index,
         );
 
-        witness.push(format!("{}", witness_encode(pre_mem_val.clone())));
+        witness.push(format!("{}", Self::witness_encode(pre_mem_val.clone())));
 
         let sw_proof = self.pre_tree.proof(sw_index, rs2_val.clone()).unwrap();
 
