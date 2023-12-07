@@ -703,7 +703,153 @@ OP_SHA256
     }
 
     fn process_auipc(&mut self, dec_insn: UType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = self.pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = self.post_tree.root();
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_end = Self::to_script_num(self.insn_pc + 4);
+        let imm = Self::to_script_num(dec_insn.imm as u32);
+
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        // Since we know the PC and imm before executing this instruction, we can do the calculation here and hardcode the result in the script.
+        //let res =self.insn_pc + (dec_insn.imm as u32) << 12;
+        // NOTE: for some reason imm is already shifted, not entirely sure why.
+        let res =self.insn_pc + (dec_insn.imm as u32);
+
+        let rd_val = Self::to_script_num(res);
+        //let rd_val = imm.clone();
+
+        println!("rd_val={:x} (as scriptnum={}), pc={:x} imm={:x} imm<<12={:x}",
+                 res, hex::encode(rd_val.clone()), self.insn_pc, dec_insn.imm,(dec_insn.imm as u32)<<12,
+        );
+
+
+        let mut script = format!(
+            "
+                # top stack elements is the start root, push it to altstack for later
+                OP_TOALTSTACK
+        "
+        );
+
+
+        // Prove inclusion of new value
+        script = format!(
+            "{}
+           {} # rd_val
+
+           # build root
+           {}
+
+    # new root on stack
+    OP_TOALTSTACK
+",
+            script,
+            hex::encode(rd_val.clone()),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = format!(
+            "{}
+        {} # pc
+        {} # pc+4
+
+        # pc inclusion
+        {}
+
+# new root on stack
+        ",
+            script,
+            hex::encode(pc_start.clone()),
+            hex::encode(pc_end.clone()),
+            self.amend_register(REG_MAX, 1),
+        );
+
+        script = format!(
+            "{}
+       OP_FROMALTSTACK #
+OP_DROP
+       OP_FROMALTSTACK #
+        OP_CAT
+OP_SHA256
+        OP_0 # index
+        OP_0 # nums key
+        81 # current taptree
+        OP_1 # flags, check input
+        OP_CHECKCONTRACTVERIFY
+OP_1
+    ",
+            script,
+        );
+
+
+
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+
+        // Value at rs1+imm will be memory address to store to.
+        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let pre_rd_val = self.pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+        add_tag(rd_val.clone(), "rd_val");
+
+        let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        self.pre_tree.set_leaf(rd_index, rd_val.clone());
+        self.pre_tree.commit();
+
+        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+//        self.pre_tree.set_leaf(pc_index, pc_end.clone());
+//        self.pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        self.pre_tree.set_leaf(pc_index, pc_end.clone());
+        let end_root = hex::encode(self.pre_tree.commit());
+        let post_root = hex::encode(self.post_tree.root());
+        if end_root != post_root {
+            panic!("end root mismatch: {} vs {}", end_root, post_root);
+        }
+
+
+        Script {
+            script: script,
+            witness: witness.into_iter().rev().collect(),
+            tags: tags,
+        }
+
     }
 
     fn process_beq(&mut self, dec_insn: BType) -> Self::InstructionResult {

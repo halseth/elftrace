@@ -100,7 +100,8 @@ fn main() {
                 println!("next opcode {:?}", opcode);
                 let pcc = current_insn.0;
                 //if pcc == 0x10098 {
-                    if pcc == 0x10094 {
+                    //if pcc == 0x10094 {
+                        if pcc != 0 {
                     let mut outputter = BitcoinInstructionProcessor {
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
@@ -146,7 +147,6 @@ fn main() {
                     // Start and  end root alwyas first in the witness.
                     //let witness = vec![];
 
-                    return;
 
                 }
 
@@ -198,7 +198,7 @@ fn guest_mem_len() -> usize {
 }
 
 fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
-    println!("register {} (SP={}) set to {}", reg, reg == REG_SP, val);
+    println!("register {} (SP={}) set to {:x}", reg, reg == REG_SP, val);
     let sys_addr = SYSTEM.start();
     let addr = sys_addr + (reg * WORD_SIZE);
 
