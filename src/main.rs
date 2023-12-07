@@ -1,5 +1,4 @@
 use bitcoin::script::write_scriptint;
-use sha2::{Digest, Sha256};
 use fast_merkle::Tree;
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
@@ -8,6 +7,7 @@ use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
 use risc0_zkvm_platform::syscall::reg_abi::{REG_A5, REG_GP, REG_RA, REG_S0, REG_SP};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::{instruction_string_outputter::InstructionStringOutputter, process_instruction};
+use sha2::{Digest, Sha256};
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -46,8 +46,6 @@ fn main() {
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
     let img = MemoryImage::new(&program, PAGE_SIZE as u32).unwrap();
     println!("got starting memory: {}", img.pc);
-
-
 
     let _session = exec.run().unwrap();
 
@@ -100,8 +98,8 @@ fn main() {
                 println!("next opcode {:?}", opcode);
                 let pcc = current_insn.0;
                 //if pcc == 0x10098 {
-                    //if pcc == 0x10094 {
-                        if pcc != 0 {
+                //if pcc == 0x10094 {
+                if pcc != 0 {
                     let mut outputter = BitcoinInstructionProcessor {
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
@@ -119,35 +117,35 @@ fn main() {
                         File::create(format!("pc_{:x}_witness.txt", pcc)).unwrap();
                     write!(witness_file, "{}", desc.witness.join("\n"));
 
-                    let tags_file =
-                        File::create(format!("pc_{:x}_tags.json", pcc)).unwrap();
+                    let tags_file = File::create(format!("pc_{:x}_tags.json", pcc)).unwrap();
 
-                    let writer = BufWriter::new(tags_file);;
+                    let writer = BufWriter::new(tags_file);
                     serde_json::to_writer_pretty(writer, &desc.tags).unwrap();
 
                     let mut hasher = Sha256::new();
-                    let start_root = roots[roots.len()-2];
-                    let end_root = roots[roots.len()-1];
+                    let start_root = roots[roots.len() - 2];
+                    let end_root = roots[roots.len() - 1];
                     hasher.update(start_root);
                     hasher.update(end_root);
                     let hash = hasher.finalize();
                     let hash_array: [u8; 32] = hash.into();
-                    println!("h({}|{}) = {}", hex::encode(start_root), hex::encode(end_root), hex::encode(hash_array));
+                    println!(
+                        "h({}|{}) = {}",
+                        hex::encode(start_root),
+                        hex::encode(end_root),
+                        hex::encode(hash_array)
+                    );
 
-                    let mut commitfile=
+                    let mut commitfile =
                         File::create(format!("pc_{:x}_commitment.txt", pcc)).unwrap();
 
                     write!(commitfile, "{}", hex::encode(hash_array));
 
-
                     // NEXT: add script/witness validation that will run each step.
                     // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
 
-
                     // Start and  end root alwyas first in the witness.
                     //let witness = vec![];
-
-
                 }
 
                 // Now that we've handled the previous instruction, set things up for processing

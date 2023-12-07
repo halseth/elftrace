@@ -661,8 +661,6 @@ OP_DUP
         OP_SWAP OP_TOALTSTACK
 OP_EQUALVERIFY # verify old root
         
-
-# new root on stack
         
        OP_FROMALTSTACK #
 OP_DROP

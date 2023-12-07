@@ -405,9 +405,8 @@ OP_EQUALVERIFY # verify old root
     # current root on stack
     OP_TOALTSTACK
 
-
         780001 # pc
-        7c0001 # pc+2
+        7c0001 # pc+4
 
         # pc inclusion
         
