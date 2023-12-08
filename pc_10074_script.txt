@@ -662,15 +662,15 @@ OP_DUP
 OP_EQUALVERIFY # verify old root
         
         
-       OP_FROMALTSTACK #
-OP_DROP
-       OP_FROMALTSTACK #
+        OP_FROMALTSTACK OP_DROP
+
+       # check input commitment
+       OP_FROMALTSTACK
         OP_CAT
-OP_SHA256
+        OP_SHA256
         OP_0 # index
         OP_0 # nums key
         81 # current taptree
         OP_1 # flags, check input
         OP_CHECKCONTRACTVERIFY
-OP_1
-    
+         OP_1

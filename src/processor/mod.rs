@@ -127,6 +127,40 @@ impl BitcoinInstructionProcessor {
         )
     }
 
+    // checks start and end state againsst input commitment
+    // stack: <end root>
+    // altstack: <start root> at pos [root_pos-1]
+    // NOTE: everything else on the alt stack will be dropped, as this is expected to be the last part of the script.
+    // output:
+    // stack: OP_1
+    fn verify_commitment(&self, script: String, root_pos: u32) -> String {
+        let mut script = script;
+        for _ in (0..root_pos-1) {
+            script = format!(
+                "{}
+        OP_FROMALTSTACK OP_DROP
+",
+                script,
+            );
+        }
+
+        format!(
+            "{}
+       # check input commitment
+       OP_FROMALTSTACK
+        OP_CAT
+        OP_SHA256
+        OP_0 # index
+        OP_0 # nums key
+        81 # current taptree
+        OP_1 # flags, check input
+        OP_CHECKCONTRACTVERIFY
+         OP_1
+",
+            script,
+        )
+    }
+
 
         // Checks inclusion, replaces leaf with new data.
     // stack:
@@ -501,25 +535,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-
-        script = format!(
-            "{}
-            # check input commitment
-       OP_FROMALTSTACK
-        OP_DROP
-       OP_FROMALTSTACK
-        OP_CAT
-OP_SHA256
-        OP_0 # index
-        OP_0 # nums key
-        81 # current taptree
-        OP_1 # flags, check input
-        OP_CHECKCONTRACTVERIFY
-
-           OP_1
-",
-            script,
-        );
+        script = self.verify_commitment(script, 2);
 
 
         let start_root = self.pre_tree.root();
@@ -692,23 +708,7 @@ OP_SHA256
 
         // Increment pc
         script = self.increment_pc(script);
-
-        script = format!(
-            "{}
-       OP_FROMALTSTACK #
-OP_DROP
-       OP_FROMALTSTACK #
-        OP_CAT
-OP_SHA256
-        OP_0 # index
-        OP_0 # nums key
-        81 # current taptree
-        OP_1 # flags, check input
-        OP_CHECKCONTRACTVERIFY
-OP_1
-    ",
-            script,
-        );
+        script = self.verify_commitment(script, 2);
 
         // We'll reverse it later.
         let mut witness = vec![hex::encode(start_root)];
@@ -991,31 +991,7 @@ OP_1
 
         // Increment pc
         script = self.increment_pc(script);
-
-        // new root on stack.
-
-        // on stack: new root
-        // on alt stack: old root
-        // verify input commitment
-
-        script = format!(
-            "{}
-       OP_FROMALTSTACK #
-OP_DROP # TODO: why ?
-       OP_FROMALTSTACK #
-        OP_CAT
-OP_SHA256
-        OP_0 # index
-        OP_0 # nums key
-        81 # current taptree
-        OP_1 # flags, check input
-        OP_CHECKCONTRACTVERIFY
-
-OP_1
-
-    ",
-            script,
-        );
+        script = self.verify_commitment(script, 2);
 
         let mut witness = vec![hex::encode(start_root)];
 
