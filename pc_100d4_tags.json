@@ -1,0 +1,10 @@
+{
+  "000420": "pre_rd_val",
+  "b00320": "rs1_val",
+  "30": "imm",
+  "e00320": "rd_val",
+  "4200d6b09cd35afd56310a5b1eacec8082d2394dd8f4b7fffda8bfa1836e0881": "end_root",
+  "4d91fdce4c8de9b09f7bbd690d04b6f9b1b34327b347a467e32de2210717ca55": "start_root",
+  "d80001": "pc_end",
+  "d40001": "pc_start"
+}

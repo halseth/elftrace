@@ -2,76 +2,7 @@
                 # top stack elements is the start root, push it to altstack for later
                 OP_TOALTSTACK
         
-        # rs on stack
-        OP_DUP OP_TOALTSTACK
-        # rs inclusion
-        
-        # on stack is merkle proof for register. We already know the location in RAM, so only
-        # nodes are needed.
-        
-        # On stack is element checked for inclusion, and path.
-        # Hash element
-        OP_SHA256
-        OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-OP_CAT OP_SHA256
-OP_SWAP
-OP_CAT OP_SHA256
-
-        
-        OP_FROMALTSTACK # current element from alt stack
-        OP_FROMALTSTACK # current element from alt stack
-OP_DUP
-        
-        OP_SWAP OP_TOALTSTACK
-        OP_SWAP OP_TOALTSTACK
-        # Check that it matches root.
-        OP_EQUALVERIFY
-        
-        
-           # perform addition
-           20 #imm
-           OP_FROMALTSTACK
-           OP_ADD
+           880001 # rd_val
 
            # build root
            
@@ -85,38 +16,38 @@ OP_DUP
 # node and push it to the altstack.
 OP_2DUP OP_DROP # duplicate sibling
 OP_FROMALTSTACK # get new node from alt stack
-OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
-        
-# Do the same with the current merkle leaf.
-OP_CAT OP_SHA256
-        
-# Use merkle sibling together with new leaf on alt stack to find new merkle
-# node and push it to the altstack.
-OP_2DUP OP_DROP # duplicate sibling
-OP_FROMALTSTACK # get new node from alt stack
-OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
-        
-# Do the same with the current merkle leaf.
-OP_CAT OP_SHA256
-        
-# Use merkle sibling together with new leaf on alt stack to find new merkle
-# node and push it to the altstack.
-OP_2DUP OP_DROP # duplicate sibling
-OP_FROMALTSTACK # get new node from alt stack
-OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
-        
-# Do the same with the current merkle leaf.
-OP_CAT OP_SHA256
-        
-# Use merkle sibling together with new leaf on alt stack to find new merkle
-# node and push it to the altstack.
-OP_2DUP OP_DROP # duplicate sibling
-OP_FROMALTSTACK # get new node from alt stack
 OP_SWAP # swap direcion
         
 OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
         
 OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
         
 # Do the same with the current merkle leaf.
 OP_CAT OP_SHA256
@@ -397,11 +328,11 @@ OP_DUP
 OP_EQUALVERIFY # verify old root
         
 
-    # current root on stack
+    # new root on stack
     OP_TOALTSTACK
 
-        980001 # pc
-        9c0001 # pc+4
+        840001 # pc
+        8c0001 # pc+imm
 
         # pc inclusion
         

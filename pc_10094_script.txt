@@ -625,7 +625,7 @@ OP_EQUALVERIFY # verify old root
         OP_TOALTSTACK
         
         940001 # pc
-        980001 # pc+2
+        980001 # pc+4
 
         # pc inclusion
         
@@ -950,20 +950,16 @@ OP_DUP
         OP_SWAP OP_TOALTSTACK
 OP_EQUALVERIFY # verify old root
         
-
-        #OP_1
         
-       OP_FROMALTSTACK #
-OP_DROP # TODO: why ?
-       OP_FROMALTSTACK #
+        OP_FROMALTSTACK OP_DROP
+
+       # check input commitment
+       OP_FROMALTSTACK
         OP_CAT
-OP_SHA256
+        OP_SHA256
         OP_0 # index
         OP_0 # nums key
         81 # current taptree
         OP_1 # flags, check input
         OP_CHECKCONTRACTVERIFY
-
-OP_1
-
-    
+         OP_1

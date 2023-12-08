@@ -4,7 +4,7 @@
 
 use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
-use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
+use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
 use risc0_zkvm_platform::WORD_SIZE;
 use rrs_lib::instruction_formats::{BType, IType, ITypeShamt, JType, RType, SType, UType};
 use rrs_lib::{
@@ -127,6 +127,26 @@ impl BitcoinInstructionProcessor {
         )
     }
 
+    fn add_pc(&self, script: String, imm: u32) -> String {
+        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_end = Self::to_script_num(self.insn_pc + imm);
+
+        // Verify start PC and amend to pc+imm,
+        format!(
+            "{}
+        {} # pc
+        {} # pc+imm
+
+        # pc inclusion
+        {}
+        ",
+            script,
+            hex::encode(pc_start.clone()),
+            hex::encode(pc_end.clone()),
+            self.amend_register(REG_MAX, 1),
+        )
+    }
+
     // checks start and end state againsst input commitment
     // stack: <end root>
     // altstack: <start root> at pos [root_pos-1]
@@ -135,7 +155,7 @@ impl BitcoinInstructionProcessor {
     // stack: OP_1
     fn verify_commitment(&self, script: String, root_pos: u32) -> String {
         let mut script = script;
-        for _ in (0..root_pos-1) {
+        for _ in (0..root_pos - 1) {
             script = format!(
                 "{}
         OP_FROMALTSTACK OP_DROP
@@ -161,8 +181,7 @@ impl BitcoinInstructionProcessor {
         )
     }
 
-
-        // Checks inclusion, replaces leaf with new data.
+    // Checks inclusion, replaces leaf with new data.
     // stack:
     // [rem] <old leaf> <new leaf>
     // alt stack: current root at position [root_pos-1]
@@ -170,18 +189,32 @@ impl BitcoinInstructionProcessor {
     // output:
     // stack: [rem] <new root>
     fn amend_register(&self, reg: usize, root_pos: u32) -> String {
+        let mut script = format!("");
+
+        // For zero register, result should always be zero.
+        if reg == REG_ZERO {
+            script = format!(
+                "{}
+            # pop value and set zero instead,
+            OP_DROP OP_0
+        ",
+                script,
+            );
+        }
+
         let addr = Self::reg_addr(reg);
         let path = self.addr_to_merkle(addr);
         let incl = Self::merkle_inclusion(&path);
 
-        let mut script = format!(
-            "
+        script = format!(
+            "{}
             # hash new leaf
             OP_SHA256 OP_TOALTSTACK
 
             # hash old leaf
             OP_SHA256
-        "
+        ",
+            script,
         );
 
         for p in path {
@@ -537,7 +570,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         script = self.increment_pc(script);
         script = self.verify_commitment(script, 2);
 
-
         let start_root = self.pre_tree.root();
         let end_root = self.post_tree.root();
 
@@ -574,8 +606,10 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             witness.push(hex::encode(p))
         }
 
-        self.pre_tree.set_leaf(rd_index, rd_mem.clone());
-        self.pre_tree.commit();
+        if dec_insn.rd != REG_ZERO {
+            self.pre_tree.set_leaf(rd_index, rd_mem.clone());
+            self.pre_tree.commit();
+        }
 
         let pc_index = Self::addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
@@ -718,8 +752,10 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             witness.push(hex::encode(p))
         }
 
-        self.pre_tree.set_leaf(rd_index, rd_val.clone());
-        self.pre_tree.commit();
+        if dec_insn.rd != REG_ZERO {
+            self.pre_tree.set_leaf(rd_index, rd_val.clone());
+            self.pre_tree.commit();
+        }
 
         let pc_index = Self::addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
@@ -825,8 +861,10 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             witness.push(hex::encode(p))
         }
 
-        self.pre_tree.set_leaf(rd_index, rd_val.clone());
-        self.pre_tree.commit();
+        if dec_insn.rd != REG_ZERO {
+            self.pre_tree.set_leaf(rd_index, rd_val.clone());
+            self.pre_tree.commit();
+        }
 
         let pc_index = Self::addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
@@ -1000,7 +1038,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             self.register_inclusion_script(dec_insn.rs2, 2),
         );
 
-
         // verify rs1
         script = format!(
             "{}
@@ -1120,7 +1157,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         witness.push(format!("{}", Self::witness_encode(pre_mem_val.clone())));
 
-        let sw_proof = self.pre_tree.proof(sw_index, rs2_val.clone()).unwrap();
+        let sw_proof = self.pre_tree.proof(sw_index, pre_mem_val.clone()).unwrap();
 
         for (i, b) in sw_path.iter().enumerate() {
             if *b {
@@ -1144,7 +1181,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         self.pre_tree.commit();
 
-
         Script {
             script: script,
             witness: witness.into_iter().rev().collect(),
@@ -1153,7 +1189,115 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_jal(&mut self, dec_insn: JType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = self.pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = self.post_tree.root();
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_end = Self::to_script_num(self.insn_pc + dec_insn.imm as u32);
+        let imm = Self::to_script_num(dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        // Since we know the PC and imm before executing this instruction, we can do the calculation here and hardcode the result in the script.
+        //let res =self.insn_pc + (dec_insn.imm as u32) << 12;
+        // NOTE: for some reason imm is already shifted, not entirely sure why.
+        let res = self.insn_pc + 4;
+
+        let rd_val = Self::to_script_num(res);
+        //let rd_val = imm.clone();
+
+        println!(
+            "rd_val={:x} (as scriptnum={}), pc={:x} imm={:x} imm<<12={:x}",
+            res,
+            hex::encode(rd_val.clone()),
+            self.insn_pc,
+            dec_insn.imm,
+            (dec_insn.imm as u32) << 12,
+        );
+
+        let mut script = push_altstack("".to_string());
+
+        let mut root_pos = 1;
+        //h        if dec_insn.rd != REG_ZERO {
+        // Prove inclusion of new value
+        script = format!(
+            "{}
+           {} # rd_val
+
+           # build root
+           {}
+
+    # new root on stack
+    OP_TOALTSTACK
+",
+            script,
+            hex::encode(rd_val.clone()),
+            self.amend_register(dec_insn.rd, 1),
+        );
+        root_pos += 1;
+        //       }
+
+        // Set new pc to pc + imm;
+        script = self.add_pc(script, dec_insn.imm as u32);
+        script = self.verify_commitment(script, root_pos);
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let pre_rd_val = self.pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+        add_tag(rd_val.clone(), "rd_val");
+
+        let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if dec_insn.rd != REG_ZERO {
+            self.pre_tree.set_leaf(rd_index, rd_val.clone());
+            self.pre_tree.commit();
+        }
+
+        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        self.pre_tree.set_leaf(pc_index, pc_end.clone());
+        let end_root = hex::encode(self.pre_tree.commit());
+        let post_root = hex::encode(self.post_tree.root());
+        if end_root != post_root {
+            panic!("end root mismatch: {} vs {}", end_root, post_root);
+        }
+
+        Script {
+            script: script,
+            witness: witness.into_iter().rev().collect(),
+            tags: tags,
+        }
     }
 
     fn process_jalr(&mut self, dec_insn: IType) -> Self::InstructionResult {
