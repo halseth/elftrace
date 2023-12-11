@@ -631,6 +631,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         //    for p in end_pc_proof {
         //        witness.push(hex::encode(p))
         //    }
+        let end_root = hex::encode(self.pre_tree.root());
+        let post_root = hex::encode(self.post_tree.root());
+        if end_root != post_root {
+            panic!("end root mismatch: {} vs {}", end_root, post_root);
+        }
 
         Script {
             script: script,
@@ -1180,6 +1185,12 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         self.pre_tree.commit();
+
+        let end_root = hex::encode(self.pre_tree.root());
+        let post_root = hex::encode(self.post_tree.root());
+        if end_root != post_root {
+            panic!("end root mismatch: {} vs {}", end_root, post_root);
+        }
 
         Script {
             script: script,
