@@ -1,0 +1,1116 @@
+
+                # top stack elements is the start root, push it to altstack for later
+                OP_TOALTSTACK
+        
+        # rs1 on stack
+        OP_DUP OP_TOALTSTACK
+        # rs1 inclusion
+        
+        # on stack is merkle proof for register. We already know the location in RAM, so only
+        # nodes are needed.
+        
+        # On stack is element checked for inclusion, and path.
+        # Hash element
+        OP_SHA256
+        OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+OP_CAT OP_SHA256
+OP_SWAP
+OP_CAT OP_SHA256
+
+        
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+OP_DUP
+        
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        # Check that it matches root.
+        OP_EQUALVERIFY
+        
+        
+            # rd on stack, verify merkle proof for memory location.
+        OP_DUP OP_TOALTSTACK
+# rd inclusion
+
+            # hash leaf
+            OP_SHA256
+        
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+OP_SWAP # bit on top
+OP_DUP OP_TOALTSTACK # duplicate path bit
+
+# Calc merkle node
+OP_IF OP_SWAP OP_ENDIF OP_CAT OP_SHA256
+
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+        OP_FROMALTSTACK # current element from alt stack
+OP_DUP
+        
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+        OP_SWAP OP_TOALTSTACK
+OP_EQUALVERIFY # verify root
+        
+        
+        # on alt stack is binary encoding of memory index (including imm), calculate rs1 from it to
+        #check that it matches.
+        OP_0
+
+    OP_FROMALTSTACK
+                OP_IF
+                00000002 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                00000001 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                00008000 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000040 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000020 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000010 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000008 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000004 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000002 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                000001 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                008000 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0040 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0020 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0010 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0008 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0004 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0002 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                0001 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                8000 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                40 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                20 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                10 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                08 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                04 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                02 OP_ADD
+                OP_ENDIF
+            
+    OP_FROMALTSTACK
+                OP_IF
+                01 OP_ADD
+                OP_ENDIF
+            
+                # now check that the number from binary equals the opcode memory address
+                # multiply by 4
+                OP_DUP OP_ADD
+                OP_DUP OP_ADD
+
+                # add address offset.
+                0004 OP_ADD
+
+                #subtract imm
+                2c OP_SUB
+
+                # get rs1 from alt stack
+                OP_FROMALTSTACK # rd
+                OP_FROMALTSTACK # rs1
+                OP_SWAP OP_TOALTSTACK
+                OP_EQUALVERIFY
+            
+            # old rd on stack, new rd on alt stack
+            OP_FROMALTSTACK # new rd
+
+           # build root
+           
+            # hash new leaf
+            OP_SHA256 OP_TOALTSTACK
+
+            # hash old leaf
+            OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+        OP_FROMALTSTACK # new root from alt stack
+        OP_SWAP
+
+        OP_FROMALTSTACK # current element from alt stack
+OP_DUP
+        
+        OP_SWAP OP_TOALTSTACK
+OP_EQUALVERIFY # verify old root
+        
+
+    # new root on stack
+    OP_TOALTSTACK
+
+        100101 # pc
+        140101 # pc+4
+
+        # pc inclusion
+        
+            # hash new leaf
+            OP_SHA256 OP_TOALTSTACK
+
+            # hash old leaf
+            OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
+        
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        
+        OP_FROMALTSTACK # new root from alt stack
+        OP_SWAP
+
+        OP_FROMALTSTACK # current element from alt stack
+OP_DUP
+        
+        OP_SWAP OP_TOALTSTACK
+OP_EQUALVERIFY # verify old root
+        
+        
+        OP_FROMALTSTACK OP_DROP
+
+       # check input commitment
+       OP_FROMALTSTACK
+        OP_CAT
+        OP_SHA256
+        OP_0 # index
+        OP_0 # nums key
+        81 # current taptree
+        OP_1 # flags, check input
+        OP_CHECKCONTRACTVERIFY
+         OP_1

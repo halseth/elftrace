@@ -1,0 +1,9 @@
+{
+  "080101": "pc_end",
+  "07": "rs1_val",
+  "08": "rs2_val",
+  "5ee32188e1d8db494a8756b15f085b430b541c851896cd66e56fa4e1aa42ba66": "start_root",
+  "8fb6e842e83d6139b5f056c9606666bb2913133b0001a9e8f805f10d1e67080c": "end_root",
+  "a0": "imm",
+  "040101": "pc_start"
+}
