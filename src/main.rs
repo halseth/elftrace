@@ -109,7 +109,8 @@ fn main() {
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
 
-                    let mut script_file = File::create(format!("ins_{:x}_script.txt", ins)).unwrap();
+                    let mut script_file =
+                        File::create(format!("ins_{:x}_script.txt", ins)).unwrap();
                     write!(script_file, "{}", desc.script);
 
                     let mut witness_file =
