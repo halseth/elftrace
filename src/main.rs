@@ -92,7 +92,6 @@ fn main() {
                 roots.push(root);
 
                 println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
-                ins += 1;
 
                 let opcode = OpCode::decode(*insn, *pc).unwrap();
                 println!("next opcode {:?}", opcode);
@@ -110,14 +109,14 @@ fn main() {
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
 
-                    let mut script_file = File::create(format!("pc_{:x}_script.txt", pcc)).unwrap();
+                    let mut script_file = File::create(format!("ins_{:x}_script.txt", ins)).unwrap();
                     write!(script_file, "{}", desc.script);
 
                     let mut witness_file =
-                        File::create(format!("pc_{:x}_witness.txt", pcc)).unwrap();
+                        File::create(format!("ins_{:x}_witness.txt", ins)).unwrap();
                     write!(witness_file, "{}", desc.witness.join("\n"));
 
-                    let tags_file = File::create(format!("pc_{:x}_tags.json", pcc)).unwrap();
+                    let tags_file = File::create(format!("ins_{:x}_tags.json", ins)).unwrap();
 
                     let writer = BufWriter::new(tags_file);
                     serde_json::to_writer_pretty(writer, &desc.tags).unwrap();
@@ -137,7 +136,7 @@ fn main() {
                     );
 
                     let mut commitfile =
-                        File::create(format!("pc_{:x}_commitment.txt", pcc)).unwrap();
+                        File::create(format!("ins_{:x}_commitment.txt", ins)).unwrap();
 
                     write!(commitfile, "{}", hex::encode(hash_array));
 
@@ -147,6 +146,8 @@ fn main() {
                     // Start and  end root alwyas first in the witness.
                     //let witness = vec![];
                 }
+
+                ins += 1;
 
                 // Now that we've handled the previous instruction, set things up for processing
                 // the next.
