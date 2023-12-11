@@ -13,7 +13,6 @@
         # Hash element
         OP_SHA256
         OP_CAT OP_SHA256
-OP_SWAP
 OP_CAT OP_SHA256
 OP_CAT OP_SHA256
 OP_CAT OP_SHA256
@@ -69,7 +68,7 @@ OP_DUP
         
         
            # perform addition
-           a0 #imm
+           07 #imm
            OP_FROMALTSTACK
            OP_ADD
 
@@ -85,7 +84,11 @@ OP_DUP
 # node and push it to the altstack.
 OP_2DUP OP_DROP # duplicate sibling
 OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
 OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
         
 # Do the same with the current merkle leaf.
 OP_CAT OP_SHA256
@@ -107,7 +110,11 @@ OP_CAT OP_SHA256
 # node and push it to the altstack.
 OP_2DUP OP_DROP # duplicate sibling
 OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
 OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
         
 # Do the same with the current merkle leaf.
 OP_CAT OP_SHA256
@@ -116,7 +123,11 @@ OP_CAT OP_SHA256
 # node and push it to the altstack.
 OP_2DUP OP_DROP # duplicate sibling
 OP_FROMALTSTACK # get new node from alt stack
+OP_SWAP # swap direcion
+        
 OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        
+OP_SWAP # swap direcion
         
 # Do the same with the current merkle leaf.
 OP_CAT OP_SHA256
@@ -400,8 +411,8 @@ OP_EQUALVERIFY # verify old root
     # current root on stack
     OP_TOALTSTACK
 
-        8c0001 # pc
-        900001 # pc+4
+        000101 # pc
+        040101 # pc+4
 
         # pc inclusion
         

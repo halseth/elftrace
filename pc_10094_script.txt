@@ -621,8 +621,8 @@ OP_EQUALVERIFY # verify old root
                 OP_FROMALTSTACK
                 OP_EQUALVERIFY
             
-        # current root to alt stack
-        OP_TOALTSTACK
+                # top stack elements is the start root, push it to altstack for later
+                OP_TOALTSTACK
         
         940001 # pc
         980001 # pc+4

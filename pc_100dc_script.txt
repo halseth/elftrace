@@ -614,14 +614,14 @@ OP_EQUALVERIFY # verify old root
                 0004 OP_ADD
 
                 #subtract imm
-                ecffffff00 OP_SUB
+                94 OP_SUB
 
                 # get rs1 from alt stack
                 OP_FROMALTSTACK
                 OP_EQUALVERIFY
             
-        # current root to alt stack
-        OP_TOALTSTACK
+                # top stack elements is the start root, push it to altstack for later
+                OP_TOALTSTACK
         
         dc0001 # pc
         e00001 # pc+4

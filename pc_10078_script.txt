@@ -70,7 +70,7 @@ OP_DUP
         
         
            # perform addition
-           a8f8ffff00 #imm
+           5887 #imm
            OP_FROMALTSTACK
            OP_ADD
 
