@@ -1,10 +1,10 @@
 {
-  "000420": "rs2_val",
-  "b00320": "rs1_val",
-  "d00001": "pc_start",
-  "2c": "imm",
   "fb3524c4b459708416089773648e74d297ced8a789d1d7bdb64d23f99e8d3064": "start_root",
-  "4d91fdce4c8de9b09f7bbd690d04b6f9b1b34327b347a467e32de2210717ca55": "end_root",
   "0004": "address offset",
-  "d40001": "pc_end"
+  "d00001": "pc_start",
+  "d40001": "pc_end",
+  "b00320": "rs1_val",
+  "4d91fdce4c8de9b09f7bbd690d04b6f9b1b34327b347a467e32de2210717ca55": "end_root",
+  "2c": "imm",
+  "000420": "rs2_val"
 }
