@@ -1,9 +1,9 @@
 {
-  "c00001": "pc_end",
-  "bc0001": "pc_start",
   "18": "imm",
-  "48cfcce8fb66ef69fef4ebb83199e541f188db5bd7494104a4870105097b40e9": "start_root",
+  "c00001": "pc_end",
+  "000420": "rs1_val",
   "180420": "rd_val",
+  "48cfcce8fb66ef69fef4ebb83199e541f188db5bd7494104a4870105097b40e9": "start_root",
   "699d6e05bc0049c7565653e9335fb8fc7b84887c8597b982ef66f01bb13ecdf8": "end_root",
-  "000420": "rs1_val"
+  "bc0001": "pc_start"
 }

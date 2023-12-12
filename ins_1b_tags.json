@@ -1,8 +1,8 @@
 {
   "fc0001": "pc_start",
   "e00320": "rs1_val",
-  "94": "imm",
   "0004": "address offset",
+  "94": "imm",
   "f1dd10b8cd4ba1827f759834548a14362d61db423e321f44fc88784d8e9844ca": "end_root",
   "af5c004f7219e16bb246df388a0b0875320db36891fda575c959b297ba49166e": "start_root",
   "000101": "pc_end"

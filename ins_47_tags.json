@@ -1,10 +1,10 @@
 {
+  "0004": "address offset",
   "d98708451e5a88b2af8ded273dfb78f794d3a8d134afae3aaad0e6b32764f5fe": "end_root",
-  "fc0001": "pc_end",
-  "94": "imm",
   "4d8453677c462d1c7e2841575f364e07a35e627fa0e51d16f3dd5d6c69083857": "start_root",
-  "06": "rs2_val",
-  "f80001": "pc_start",
   "e00320": "rs1_val",
-  "0004": "address offset"
+  "94": "imm",
+  "f80001": "pc_start",
+  "fc0001": "pc_end",
+  "06": "rs2_val"
 }

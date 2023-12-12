@@ -1,8 +1,8 @@
 {
+  "a0": "imm",
   "040101": "pc_start",
   "7094a2bcfc0ce139b07d91f953756b787cfbb6255cc15e1f55c10949f1af6aff": "end_root",
+  "07": "rs2_val",
   "52c67cc4bfbc6e5342db6207c88db81acddceccc7303a2026fd4ee0c735ecbd0": "start_root",
-  "a0": "imm",
-  "080101": "pc_end",
-  "07": "rs2_val"
+  "080101": "pc_end"
 }
