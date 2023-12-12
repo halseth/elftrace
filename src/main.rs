@@ -67,9 +67,8 @@ fn main() {
     let mut roots: Vec<[u8; 32]> = vec![start_root];
 
     // We'll keep two active merkle trees in order to prove the state of the computation before and
-    // after each instruction.
-    let mut pre_tree = mem_tree;
-    let mut post_tree = pre_tree.clone();
+    // after each instruction. One is altered by the trace events, while the other is build from the bitcoin instruction processor.
+    let mut script_tree = mem_tree.clone();
 
     // (pc, insn)
     let mut current_insn: (u32, u32) = (0, 0);
@@ -87,8 +86,8 @@ fn main() {
             TraceEvent::InstructionStart { cycle, pc, insn } => {
                 // Set the new PC and get a state commitment. This will be the state of computation
                 // before this instruction is executed, hence the post-state of the previous instruction.
-                set_register(&mut post_tree, REG_MAX, *pc);
-                let root = post_tree.commit();
+                set_register(&mut mem_tree, REG_MAX, *pc);
+                let root = mem_tree.commit();
                 roots.push(root);
 
                 println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
@@ -103,8 +102,8 @@ fn main() {
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
                         mem_len: mem_len as u32,
-                        pre_tree: pre_tree.clone(),
-                        post_tree: post_tree.clone(),
+                        pre_tree: &mut script_tree,
+                        end_root: root,
                     };
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
@@ -148,26 +147,30 @@ fn main() {
                     //let witness = vec![];
                 }
 
+                let r1 = hex::encode(script_tree.root());
+                let r2 = hex::encode(mem_tree.root());
+                if r1 != r2 {
+                    panic!("root mismatch: {} vs {}", r1, r2);
+                }
+
                 ins += 1;
 
                 // Now that we've handled the previous instruction, set things up for processing
                 // the next.
                 current_insn = (*pc, *insn);
-                pre_tree = post_tree;
-                post_tree = pre_tree.clone();
 
                 //prev_root = root.clone();
             }
             TraceEvent::RegisterSet { idx, value } => {
-                set_register(&mut post_tree, *idx, *value);
+                set_register(&mut mem_tree, *idx, *value);
             }
             TraceEvent::MemorySet { addr, value } => {
-                set_addr(&mut post_tree, (*addr) as usize, *value);
+                set_addr(&mut mem_tree, (*addr) as usize, *value);
             }
         }
     }
 
-    let root = post_tree.commit();
+    let root = mem_tree.commit();
     println!("final root[{}]={}", ins, hex::encode(root));
 }
 

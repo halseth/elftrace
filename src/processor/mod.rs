@@ -25,18 +25,18 @@ fn push_altstack(script: String) -> String {
     )
 }
 
-pub struct BitcoinInstructionProcessor {
+pub struct BitcoinInstructionProcessor<'a> {
     /// PC of the instruction being output. Used to generate disassembly of instructions with PC
     /// relative fields (such as BEQ and JAL).
     pub insn_pc: u32,
 
     pub start_addr: u32,
     pub mem_len: u32,
-    pub pre_tree: fast_merkle::Tree,
-    pub post_tree: fast_merkle::Tree,
+    pub pre_tree: &'a mut fast_merkle::Tree,
+    pub end_root: [u8; 32],
 }
 
-impl BitcoinInstructionProcessor {
+impl<'a> BitcoinInstructionProcessor<'a> {
     fn num_bits(&self) -> u32 {
         32 - self.mem_len.leading_zeros() - 1
     }
@@ -509,7 +509,7 @@ pub struct Script {
     pub tags: HashMap<String, String>,
 }
 
-impl InstructionProcessor for BitcoinInstructionProcessor {
+impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
     type InstructionResult = Script;
 
     fn process_add(&mut self, dec_insn: RType) -> Self::InstructionResult {
@@ -563,7 +563,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
@@ -632,7 +632,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         script = self.verify_commitment(script, 2);
 
         let start_root = self.pre_tree.root();
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
 
         let rs1_index = Self::addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
@@ -680,8 +680,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             println!("{}:", hex::encode(p));
         }
 
-        let end_pc_proof = self.post_tree.proof(pc_index, pc_end.clone()).unwrap();
-
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         self.pre_tree.commit();
 
@@ -689,11 +687,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             witness.push(hex::encode(p))
         }
 
-        //    for p in end_pc_proof {
-        //        witness.push(hex::encode(p))
-        //    }
         let end_root = hex::encode(self.pre_tree.root());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -716,7 +711,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
@@ -784,13 +779,12 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             self.amend_register(dec_insn.rs1, 1),
         );
 
-
         // Increment pc
         script = self.increment_pc(script);
         script = self.verify_commitment(script, 2);
 
         let start_root = self.pre_tree.root();
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
 
         let rs1_index = Self::addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
@@ -837,8 +831,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             println!("{}:", hex::encode(p));
         }
 
-        let end_pc_proof = self.post_tree.proof(pc_index, pc_end.clone()).unwrap();
-
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         self.pre_tree.commit();
 
@@ -846,11 +838,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             witness.push(hex::encode(p))
         }
 
-        //    for p in end_pc_proof {
-        //        witness.push(hex::encode(p))
-        //    }
         let end_root = hex::encode(self.pre_tree.root());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -901,7 +890,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         let pc_addr = Self::reg_addr(REG_MAX);
@@ -984,7 +973,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         let end_root = hex::encode(self.pre_tree.commit());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -1007,7 +996,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         let pc_addr = Self::reg_addr(REG_MAX);
@@ -1097,7 +1086,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         let end_root = hex::encode(self.pre_tree.commit());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -1136,7 +1125,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
@@ -1232,7 +1221,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         script = self.verify_commitment(script, 1);
 
         let start_root = self.pre_tree.root();
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
 
         let rs1_index = Self::addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
@@ -1275,7 +1264,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         self.pre_tree.commit();
 
         let end_root = hex::encode(self.pre_tree.root());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -1320,7 +1309,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         println!(
@@ -1546,7 +1535,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         self.pre_tree.commit();
 
         let end_root = hex::encode(self.pre_tree.root());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -1577,7 +1566,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         println!(
@@ -1807,7 +1796,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         self.pre_tree.commit();
 
         let end_root = hex::encode(self.pre_tree.root());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
@@ -1830,7 +1819,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let start_root = self.pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
-        let end_root = self.post_tree.root();
+        let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
         let pc_addr = Self::reg_addr(REG_MAX);
@@ -1919,7 +1908,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         self.pre_tree.set_leaf(pc_index, pc_end.clone());
         let end_root = hex::encode(self.pre_tree.commit());
-        let post_root = hex::encode(self.post_tree.root());
+        let post_root = hex::encode(self.end_root);
         if end_root != post_root {
             panic!("end root mismatch: {} vs {}", end_root, post_root);
         }
