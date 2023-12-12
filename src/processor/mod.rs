@@ -625,7 +625,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
     OP_TOALTSTACK
 ",
             script,
-            hex::encode(imm),
+            Self::witness_encode(imm.clone()),
             self.amend_register(dec_insn.rd, 1),
         );
 
