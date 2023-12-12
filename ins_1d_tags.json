@@ -1,9 +1,9 @@
 {
-  "a0": "imm",
-  "01": "rs2_val",
-  "becc7185e00666274362db0b0c9d79b42106851659b28f64f4e1b39db3a3eb13": "start_root",
+  "080101": "pc_end",
   "040101": "pc_start",
   "a9646ff1f4195a16120a590a8281660f1d02bcd52739d9c282dc30e82a4c5203": "end_root",
-  "080101": "pc_end",
-  "07": "rs1_val"
+  "becc7185e00666274362db0b0c9d79b42106851659b28f64f4e1b39db3a3eb13": "start_root",
+  "07": "rs1_val",
+  "a0": "imm",
+  "01": "rs2_val"
 }

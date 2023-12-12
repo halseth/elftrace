@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::fmt::format;
 use std::iter::Map;
 
-fn push_altstack(script: String) -> String {
+fn push_altstack(script: &String) -> String {
     format!(
         "{}
                 # top stack elements is the start root, push it to altstack for later
@@ -26,6 +26,8 @@ fn push_altstack(script: String) -> String {
 }
 
 pub struct BitcoinInstructionProcessor<'a> {
+    pub str: String,
+
     /// PC of the instruction being output. Used to generate disassembly of instructions with PC
     /// relative fields (such as BEQ and JAL).
     pub insn_pc: u32,
@@ -595,7 +597,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -741,7 +743,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -924,7 +926,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             (dec_insn.imm as u32) << 12,
         );
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         // Prove inclusion of new value
         script = format!(
@@ -1032,7 +1034,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             (dec_insn.imm as u32) << 12,
         );
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         // Prove inclusion of new value
         script = format!(
@@ -1165,7 +1167,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -1297,8 +1299,6 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
     }
 
     fn process_lw(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        // NEXT: lw. Can we share most code with sw? Copy value from mem to register instead of register to mem.
-
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
             if k.len() == 0 {
@@ -1375,7 +1375,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let lw_index = Self::addr_to_index(lw_addr as usize);
         let lw_path = self.addr_to_merkle(lw_addr as u32);
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         // steps
         // 1. check value rs1 from witness against start root
@@ -1738,7 +1738,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         add_tag(imm.clone(), "imm");
 
         // new root on stack.
-        script = push_altstack(script);
+        script = push_altstack(&script);
 
         // Increment pc
         script = self.increment_pc(script);
@@ -1855,7 +1855,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             (dec_insn.imm as u32) << 12,
         );
 
-        let mut script = push_altstack("".to_string());
+        let mut script = push_altstack(&self.str);
 
         let mut root_pos = 1;
         //h        if dec_insn.rd != REG_ZERO {

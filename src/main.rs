@@ -9,6 +9,7 @@ use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::{instruction_string_outputter::InstructionStringOutputter, process_instruction};
 use sha2::{Digest, Sha256};
 
+use std::fmt::format;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
@@ -72,6 +73,7 @@ fn main() {
 
     // (pc, insn)
     let mut current_insn: (u32, u32) = (0, 0);
+    let mut current_opcode: Option<OpCode> = None;
 
     // Now we go through the trace once again, this time creating the scripts and witnesses for
     // each state transition.
@@ -92,13 +94,14 @@ fn main() {
 
                 println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
 
-                let opcode = OpCode::decode(*insn, *pc).unwrap();
-                println!("next opcode {:?}", opcode);
                 let pcc = current_insn.0;
                 //if pcc == 0x10098 {
                 //if pcc == 0x10094 {
                 if pcc != 0 {
+                    let opcode = current_opcode.unwrap();
+                    println!("executing opcode {:?}", opcode);
                     let mut outputter = BitcoinInstructionProcessor {
+                        str: format!("# {:?}", opcode),
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
                         mem_len: mem_len as u32,
@@ -108,6 +111,7 @@ fn main() {
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
 
+                    //   if pcc == 0x00010110 {
                     let mut script_file =
                         File::create(format!("ins_{:x}_script.txt", ins)).unwrap();
                     write!(script_file, "{}", desc.script);
@@ -139,6 +143,7 @@ fn main() {
                         File::create(format!("ins_{:x}_commitment.txt", ins)).unwrap();
 
                     write!(commitfile, "{}", hex::encode(hash_array));
+                    //    }
 
                     // NEXT: add script/witness validation that will run each step.
                     // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
@@ -153,6 +158,9 @@ fn main() {
                     panic!("root mismatch: {} vs {}", r1, r2);
                 }
 
+                let opcode = OpCode::decode(*insn, *pc).unwrap();
+                //println!("next opcode {:?}", opcode);
+                current_opcode = Some(opcode);
                 ins += 1;
 
                 // Now that we've handled the previous instruction, set things up for processing

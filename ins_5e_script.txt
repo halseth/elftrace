@@ -1,4 +1,4 @@
-
+# [1] pc: 0x0001010c, insn: 0x00078513 => addi x10, x15, 0
                 # top stack elements is the start root, push it to altstack for later
                 OP_TOALTSTACK
         
@@ -72,7 +72,7 @@ OP_DUP
         
         
            # perform addition
-            #imm
+           <> #imm
            OP_FROMALTSTACK
            OP_ADD
 

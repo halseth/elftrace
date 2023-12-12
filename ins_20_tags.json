@@ -1,10 +1,10 @@
 {
-  "a4": "imm",
-  "e00320": "rs1_val",
-  "08": "rs2_val",
-  "0004": "address offset",
   "5ebc206218474e66a0e10b3c3d2f54deff2ef4be75f06500bd281d84aa7b7a61": "end_root",
   "f00001": "pc_end",
+  "08": "rs2_val",
   "afb239a731120c379683da2bd278b8ede43272f73d56e95b34a5afa244f46bc2": "start_root",
+  "0004": "address offset",
+  "e00320": "rs1_val",
+  "a4": "imm",
   "ec0001": "pc_start"
 }

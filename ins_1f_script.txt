@@ -1,4 +1,4 @@
-
+# [1] pc: 0x000100e8, insn: 0x00179793 => slli x15, x15, 1
                 # top stack elements is the start root, push it to altstack for later
                 OP_TOALTSTACK
         

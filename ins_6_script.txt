@@ -1,4 +1,4 @@
-
+# [1] pc: 0x0001008c, insn: 0xfe010113 => addi x2, x2, -32
                 # top stack elements is the start root, push it to altstack for later
                 OP_TOALTSTACK
         
