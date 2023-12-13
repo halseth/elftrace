@@ -98,7 +98,7 @@ fn main() {
                     //println!("executing opcode {:?}", opcode);
                     let mut outputter = BitcoinInstructionProcessor {
                         //str: format!("# {:?}", opcode),
-                        str: format!("# TODO"),
+                        str: format!("# pc: {:x}", pcc),
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
                         mem_len: mem_len as u32,
@@ -108,15 +108,17 @@ fn main() {
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
 
+                    let ins_str = format!("{:04x}", ins);
+
                     let mut script_file =
-                        File::create(format!("trace/ins_{:x}_script.txt", ins)).unwrap();
+                        File::create(format!("trace/ins_{}_script.txt", ins_str)).unwrap();
                     write!(script_file, "{}", desc.script).unwrap();
 
                     let mut witness_file =
-                        File::create(format!("trace/ins_{:x}_witness.txt", ins)).unwrap();
+                        File::create(format!("trace/ins_{}_witness.txt", ins_str)).unwrap();
                     write!(witness_file, "{}", desc.witness.join("\n")).unwrap();
 
-                    let tags_file = File::create(format!("trace/ins_{:x}_tags.json", ins)).unwrap();
+                    let tags_file = File::create(format!("trace/ins_{}_tags.json", ins_str)).unwrap();
 
                     let writer = BufWriter::new(tags_file);
                     serde_json::to_writer_pretty(writer, &desc.tags).unwrap();
@@ -136,7 +138,7 @@ fn main() {
                     );
 
                     let mut commitfile =
-                        File::create(format!("trace/ins_{:x}_commitment.txt", ins)).unwrap();
+                        File::create(format!("trace/ins_{}_commitment.txt", ins_str)).unwrap();
 
                     write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
 
