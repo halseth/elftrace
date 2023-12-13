@@ -24,7 +24,46 @@ and compile it:
 $ riscv32-unknown-elf-gcc -S multiply_loop.c
 ```
 
-This will output an assembly file. Now some boilerplate to call this function:
+This will output an assembly file:
+```asm
+$ cat multiply_loop.s
+	.file	"multiply_loop.c"
+	.option nopic
+	.attribute arch, "rv32i2p1_m2p0"
+	.attribute unaligned_access, 0
+	.attribute stack_align, 16
+	.text
+	.align	2
+	.globl	runcontract
+	.type	runcontract, @function
+runcontract:
+	addi	sp,sp,-48
+	sw	s0,44(sp)
+	addi	s0,sp,48
+	sw	a0,-36(s0)
+	sw	zero,-20(s0)
+	j	.L2
+.L3:
+	lw	a5,-36(s0)
+	slli	a5,a5,1
+	sw	a5,-36(s0)
+	lw	a5,-20(s0)
+	addi	a5,a5,1
+	sw	a5,-20(s0)
+.L2:
+	lw	a4,-20(s0)
+	li	a5,7
+	ble	a4,a5,.L3
+	lw	a5,-36(s0)
+	mv	a0,a5
+	lw	s0,44(sp)
+	addi	sp,sp,48
+	jr	ra
+	.size	runcontract, .-runcontract
+	.ident	"GCC: () 13.2.0"
+```
+
+Now some boilerplate to call this function:
 
 ```asm
 .section .text._start;
@@ -172,23 +211,21 @@ ins_006b_witness.txt
 ```
 
 Each step of the computation resulted in a 
-    - commitment: this will be the hash of the start merkle root + the end
-      merkle root. This commits to the full VM memory before and after the
-      executed step.
-    - script: this is the Bitcoin tapscript that uses OP_CHECKCONTRACTVERIFY to
-      verify the executed VM step against the commitment.
-    - tags: this is a helper file for Tapsim, useful to annotate elements when
-      debugging the script.
-    - witness: this is the witness that must be provided in order to execute
-      the script. This contains mostly of merkle proofs into the merkleized
-      state.
+- commitment: this will be the hash of the start merkle root + the end merkle
+  root. This commits to the full VM memory before and after the executed step.
+- script: this is the Bitcoin tapscript that uses OP_CHECKCONTRACTVERIFY to
+  verify the executed VM step against the commitment.
+- tags: this is a helper file for Tapsim, useful to annotate elements when
+  debugging the script.
+- witness: this is the witness that must be provided in order to execute the
+  script. This contains mostly of merkle proofs into the merkleized state.
 
 # Verify
 State transition verification is done by having the commitment be added as a
 tweak to the taproot key, then spending from this output using the correct
 witness.
 
-For example using tapsim:
+For example using tapsim (you must have Tapsim as well as the tool `tweak` installed):
 ```bash
 tapsim execute --script "trace/ins_0034_script.txt"  --witness "trace/ins_0034_witness.txt" --tagfile "trace/ins_0034_tags.json" --colwidth=80 --rows=45 --inputkey "`tweak --merkle "\`cat trace/ins_0034_commitment.txt\`" --key "nums" | sed -n 4p | awk -F" " '{print $2}'`"
 ```
