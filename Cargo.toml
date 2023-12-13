@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 risc0-zkvm = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm", features = ["prove"] }
 risc0-zkvm-platform = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm/platform"}
-fast_merkle = {path = "/Users/johan.halseth/code/fast_merkle"}
+#fast_merkle = {path = "/Users/johan.halseth/code/fast_merkle"}
+fast_merkle = { git = "https://github.com/halseth/fast_merkle.git" }
 rs_merkle = "1.4.1"
 rrs-lib = "0.1"
 bitcoin = "0.31.0"

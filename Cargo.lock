@@ -401,7 +401,7 @@ name = "elftrace"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "fast_merkle",
+ "fast_merkle 0.1.0 (git+https://github.com/halseth/fast_merkle.git)",
  "hex",
  "risc0-zkvm",
  "risc0-zkvm-platform",
@@ -454,6 +454,15 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 [[package]]
 name = "fast_merkle"
 version = "0.1.0"
+dependencies = [
+ "hex",
+ "sha2",
+]
+
+[[package]]
+name = "fast_merkle"
+version = "0.1.0"
+source = "git+https://github.com/halseth/fast_merkle.git#cc885adca0817b80fd9ed99b3fb522e8d890abe0"
 dependencies = [
  "hex",
  "sha2",
@@ -1586,7 +1595,7 @@ dependencies = [
  "bytes",
  "cfg-if",
  "crypto-bigint",
- "fast_merkle",
+ "fast_merkle 0.1.0",
  "generic-array",
  "getrandom",
  "hex",
