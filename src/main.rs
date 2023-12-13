@@ -1,15 +1,14 @@
 use bitcoin::script::write_scriptint;
 use fast_merkle::Tree;
-use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
+use risc0_zkvm::host::server::opcode::{OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
-use risc0_zkvm_platform::syscall::reg_abi::{REG_A5, REG_GP, REG_RA, REG_S0, REG_SP};
+use risc0_zkvm_platform::syscall::reg_abi::{REG_SP};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
-use rrs_lib::{instruction_string_outputter::InstructionStringOutputter, process_instruction};
+use rrs_lib::{process_instruction};
 use sha2::{Digest, Sha256};
 
-use std::fmt::format;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
@@ -29,7 +28,7 @@ fn main() {
     let file_path = &args[1];
     println!("parsing file {}", file_path);
 
-    let mut mtxs = Arc::new((Mutex::new(Vec::new())));
+    let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace = mtxs.clone();
 
     let mut builder = ExecutorEnv::builder();
@@ -64,7 +63,6 @@ fn main() {
         duration,
     );
 
-    let mut ins = 0;
     let mut roots: Vec<[u8; 32]> = vec![start_root];
 
     // We'll keep two active merkle trees in order to prove the state of the computation before and
@@ -80,8 +78,8 @@ fn main() {
     // TODO: organize in a way such that script and witness creation is seperate (don't know memory when creating scripts).
     // we can keep script creation in here as well, to assert they are the same.
     // iterate program range, decode insn, ignore if not a real instruction otherwise create script.
-    ins = 0;
-    for (i, e) in trace.lock().unwrap().iter().enumerate() {
+    let mut ins = 0;
+    for (_i, e) in trace.lock().unwrap().iter().enumerate() {
         //println!("iteration[{}]={:?}", i, e);
         match e {
             // A new instruction is starting.
@@ -95,8 +93,6 @@ fn main() {
                 println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
 
                 let pcc = current_insn.0;
-                //if pcc == 0x10098 {
-                //if pcc == 0x10094 {
                 if pcc != 0 {
                     let opcode = current_opcode.unwrap();
                     println!("executing opcode {:?}", opcode);
@@ -111,16 +107,15 @@ fn main() {
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
 
-                    //   if pcc == 0x00010110 {
                     let mut script_file =
-                        File::create(format!("ins_{:x}_script.txt", ins)).unwrap();
-                    write!(script_file, "{}", desc.script);
+                        File::create(format!("trace/ins_{:x}_script.txt", ins)).unwrap();
+                    write!(script_file, "{}", desc.script).unwrap();
 
                     let mut witness_file =
-                        File::create(format!("ins_{:x}_witness.txt", ins)).unwrap();
-                    write!(witness_file, "{}", desc.witness.join("\n"));
+                        File::create(format!("trace/ins_{:x}_witness.txt", ins)).unwrap();
+                    write!(witness_file, "{}", desc.witness.join("\n")).unwrap();
 
-                    let tags_file = File::create(format!("ins_{:x}_tags.json", ins)).unwrap();
+                    let tags_file = File::create(format!("trace/ins_{:x}_tags.json", ins)).unwrap();
 
                     let writer = BufWriter::new(tags_file);
                     serde_json::to_writer_pretty(writer, &desc.tags).unwrap();
@@ -140,10 +135,9 @@ fn main() {
                     );
 
                     let mut commitfile =
-                        File::create(format!("ins_{:x}_commitment.txt", ins)).unwrap();
+                        File::create(format!("trace/ins_{:x}_commitment.txt", ins)).unwrap();
 
-                    write!(commitfile, "{}", hex::encode(hash_array));
-                    //    }
+                    write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
 
                     // NEXT: add script/witness validation that will run each step.
                     // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
@@ -183,16 +177,13 @@ fn main() {
 }
 
 fn guest_mem_len() -> usize {
-    let mut mem_len: usize = 0; // Number of words (4 bytes) in the guest memory.
-
-    mem_len = (GUEST_MAX_MEM - GUEST_MIN_MEM) / WORD_SIZE;
+    let mut mem_len: usize = (GUEST_MAX_MEM - GUEST_MIN_MEM) / WORD_SIZE;
 
     println!("guest memory length {}", mem_len);
 
     // In addition to committing to the memory we want to commit to the registers. These are
     // already located in the host memory starting at SYSTEM.start.
-    let sys_addr = SYSTEM.start() as u32;
-    for reg in 0..REG_MAX {
+    for _reg in 0..REG_MAX {
         mem_len += 1;
     }
 
@@ -217,10 +208,6 @@ fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
 }
 
 fn set_addr(fast_tree: &mut Tree, addr: usize, val: u32) {
-    let index = addr_to_index(addr);
-    let leaf = fast_tree.get_leaf(index);
-    //println!("leaf {} before setting={}", index, hex::encode(leaf));
-
     let b = val.to_le_bytes();
     set_commit(fast_tree, addr, b);
 }
@@ -260,10 +247,7 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
     //    println!("pages {}", temp_image.pages.len());
     //    println!("max memory 0x{:08x}",GUEST_MAX_MEM);
 
-    let start1 = Instant::now();
-
     // TODO: use full memory for real applications
-    //let end_mem = GUEST_MAX_MEM;
     let end_mem = 0x0002_0000;
     for addr in (GUEST_MIN_MEM..end_mem).step_by(WORD_SIZE) {
         let b = load_addr(temp_image, addr);
@@ -280,80 +264,18 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
 
     // Push PC
     let pc_addr = SYSTEM.start() + REG_MAX * WORD_SIZE;
-    let pc_index = addr_to_index(pc_addr);
-    //println!("Executor: pc addr {}-> index {}", pc_addr, pc_index);
     set_commit(fast_tree, pc_addr, pc.to_le_bytes());
-
-    let duration1 = start1.elapsed();
-    //println!("iterating mempry took:  {:?}", duration1);
-
-    let mem_len = guest_mem_len();
-
-    let start3 = Instant::now();
     let root = fast_tree.commit();
-    let duration3 = start3.elapsed();
-    //println!("committing tree took:  {:?}", duration3);
 
     return root;
-
-    if pc != 0x10098 && pc != (0x10098 + 4) {
-        return root;
-    }
-
-    println!("creating witnesses for pc={:x}", pc);
-    //let pc_addr = BitcoinInstructionProcessor::reg_addr(REG_MAX);
-    let pc_num = to_script_num(pc.to_le_bytes());
-    println!("pc: {}", hex::encode(pc_num.clone()));
-    let pc_proof = fast_tree.proof(pc_index, pc_num).unwrap();
-    print_proof(pc_proof);
-
-    let x2_addr = sys_addr + (REG_SP * WORD_SIZE);
-    let x2_mem = load_addr(temp_image, x2_addr);
-    let x2_num = to_script_num(x2_mem);
-
-    println!("x2: {}", hex::encode(x2_num.clone()));
-    let x2_index = addr_to_index(x2_addr);
-    let x2_proof = fast_tree.proof(x2_index, x2_num).unwrap();
-    print_proof(x2_proof);
-
-    let x8_addr = sys_addr + (REG_S0 * WORD_SIZE);
-    let x8_mem = load_addr(temp_image, x8_addr);
-    let x8_num = to_script_num(x8_mem);
-
-    println!("x8: {}", hex::encode(x8_num.clone()));
-    let x8_index = addr_to_index(x8_addr);
-    let x8_proof = fast_tree.proof(x8_index, x8_num).unwrap();
-    print_proof(x8_proof);
-
-    root
 }
 
 fn addr_to_index(addr: usize) -> usize {
     (addr - GUEST_MIN_MEM) / WORD_SIZE
 }
 
-fn print_proof(proof: Vec<[u8; 32]>) {
-    let n = proof.len();
-    //        for (i, p) in proof.iter().enumerate() {
-    //            println!("level {}: {}",n-i, hex::encode(p));
-    //        }
 
-    let mut witness = "".to_string();
-    for p in proof.iter().rev() {
-        let add = format!(" {}", hex::encode(p));
-        witness.push_str(add.as_str());
-    }
 
-    println!("witness: {}", witness);
-}
-
-fn run(img: &MemoryImage) {
-    let mut i = 0;
-    loop {
-        println!("loop iteration {}", i);
-        i += 1;
-    }
-}
 
 pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
     let mut results = Vec::new();
