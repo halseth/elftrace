@@ -12,7 +12,6 @@ risc0-zkvm = { version = "0.19.1", features = ["prove"] }
 risc0-zkvm-platform = { version = "0.19.1" }
 #fast_merkle = {path = "/Users/johan.halseth/code/fast_merkle"}
 fast_merkle = { git = "https://github.com/halseth/fast_merkle.git" }
-rs_merkle = "1.4.1"
 rrs-lib = "0.1"
 bitcoin = "0.31.0"
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }

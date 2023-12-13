@@ -417,7 +417,6 @@ dependencies = [
  "risc0-zkvm",
  "risc0-zkvm-platform",
  "rrs-lib",
- "rs_merkle",
  "serde_json",
  "sha2",
 ]
@@ -1650,15 +1649,6 @@ checksum = "b4382d3af3a4ebdae7f64ba6edd9114fff92c89808004c4943b393377a25d001"
 dependencies = [
  "downcast-rs",
  "paste",
-]
-
-[[package]]
-name = "rs_merkle"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05225752ca6ede4cb1b73aa37ce3904affd042e98f28246f56f438ebfd47a810"
-dependencies = [
- "sha2",
 ]
 
 [[package]]
