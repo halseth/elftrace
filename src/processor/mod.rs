@@ -2014,7 +2014,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             script,
             hex::encode(pc_start.clone()),
             Self::witness_encode(imm.clone()),
-            self.amend_register(REG_MAX,1),
+            self.amend_register(REG_MAX, 1),
         );
 
         script = self.verify_commitment(script, 2);

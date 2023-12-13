@@ -1,12 +1,12 @@
 use bitcoin::script::write_scriptint;
 use fast_merkle::Tree;
-use risc0_zkvm::host::server::opcode::{OpCode};
+//use risc0_zkvm::host::server::opcode::{OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
-use risc0_zkvm_platform::syscall::reg_abi::{REG_SP};
+use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
-use rrs_lib::{process_instruction};
+use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
 
 use std::fs::File;
@@ -71,7 +71,7 @@ fn main() {
 
     // (pc, insn)
     let mut current_insn: (u32, u32) = (0, 0);
-    let mut current_opcode: Option<OpCode> = None;
+    //let mut current_opcode: Option<OpCode> = None;
 
     // Now we go through the trace once again, this time creating the scripts and witnesses for
     // each state transition.
@@ -94,10 +94,11 @@ fn main() {
 
                 let pcc = current_insn.0;
                 if pcc != 0 {
-                    let opcode = current_opcode.unwrap();
-                    println!("executing opcode {:?}", opcode);
+                    //let opcode = current_opcode.unwrap();
+                    //println!("executing opcode {:?}", opcode);
                     let mut outputter = BitcoinInstructionProcessor {
-                        str: format!("# {:?}", opcode),
+                        //str: format!("# {:?}", opcode),
+                        str: format!("# TODO"),
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
                         mem_len: mem_len as u32,
@@ -152,9 +153,9 @@ fn main() {
                     panic!("root mismatch: {} vs {}", r1, r2);
                 }
 
-                let opcode = OpCode::decode(*insn, *pc).unwrap();
+                //let opcode = OpCode::decode(*insn, *pc).unwrap();
                 //println!("next opcode {:?}", opcode);
-                current_opcode = Some(opcode);
+                //current_opcode = Some(opcode);
                 ins += 1;
 
                 // Now that we've handled the previous instruction, set things up for processing
@@ -273,9 +274,6 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
 fn addr_to_index(addr: usize) -> usize {
     (addr - GUEST_MIN_MEM) / WORD_SIZE
 }
-
-
-
 
 pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
     let mut results = Vec::new();
