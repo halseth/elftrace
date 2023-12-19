@@ -48,7 +48,7 @@ fn addr_to_index(addr: usize) -> usize {
     (addr - GUEST_MIN_MEM) / WORD_SIZE
 }
 
-pub struct BitcoinInstructionProcessor<'a> {
+pub struct BitcoinInstructionProcessor {
     pub str: String,
 
     /// PC of the instruction being output. Used to generate disassembly of instructions with PC
@@ -57,12 +57,9 @@ pub struct BitcoinInstructionProcessor<'a> {
 
     pub start_addr: u32,
     pub mem_len: u32,
-    //pub pre_tree: Option<&'a mut fast_merkle::Tree>,
-    //pub end_root: Option<[u8; 32]>,
-    pub dummy_num: &'a u32,
 }
 
-impl<'a> BitcoinInstructionProcessor<'a> {
+impl BitcoinInstructionProcessor {
     fn num_bits(&self) -> u32 {
         32 - self.mem_len.leading_zeros() - 1
     }
@@ -1376,7 +1373,7 @@ pub struct Script {
     pub witness_gen: Box<dyn WitnessGenerator>,
 }
 
-impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
+impl InstructionProcessor for BitcoinInstructionProcessor {
     type InstructionResult = Script;
 
     fn process_add(&mut self, dec_insn: RType) -> Self::InstructionResult {

@@ -130,7 +130,6 @@ fn main() {
                 if pcc != 0 {
                     //let opcode = current_opcode.unwrap();
                     //println!("executing opcode {:?}", opcode);
-                    let dummy_num: u32 = 3;
                     let mut outputter = BitcoinInstructionProcessor {
                         //str: format!("# {:?}", opcode),
                         str: format!("# pc: {:x}", pcc),
@@ -139,9 +138,10 @@ fn main() {
                         mem_len: mem_len as u32,
                         //pre_tree: Some(&mut script_tree),
                         //end_root: Some(root),
-                        dummy_num: &dummy_num,
                     };
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
+                    //let dummy_num: u32 = 3;
+                    //    dummy_num: &dummy_num,
                     //println!("{}", desc);
 
                     let ins_str = format!("{:04x}", ins);
