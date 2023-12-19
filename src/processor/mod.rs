@@ -15,6 +15,13 @@ use std::collections::HashMap;
 use std::fmt::format;
 use std::iter::Map;
 
+fn to_script_num<T: Into<i64>>(w: T) -> Vec<u8> {
+    let mut script_num: [u8; 8] = [0; 8];
+    let n = write_scriptint(&mut script_num, w.into());
+
+    script_num[..n].to_vec()
+}
+
 fn push_altstack(script: &String) -> String {
     format!(
         "{}
@@ -23,6 +30,22 @@ fn push_altstack(script: &String) -> String {
         ",
         script,
     )
+}
+
+pub fn reg_addr(reg: usize) -> u32 {
+    (SYSTEM.start() + reg * WORD_SIZE) as u32
+}
+
+fn witness_encode(data: Vec<u8>) -> String {
+    if data.len() == 0 {
+        return "<>".to_string();
+    }
+
+    hex::encode(data)
+}
+
+fn addr_to_index(addr: usize) -> usize {
+    (addr - GUEST_MIN_MEM) / WORD_SIZE
 }
 
 pub struct BitcoinInstructionProcessor<'a> {
@@ -65,21 +88,6 @@ impl<'a> BitcoinInstructionProcessor<'a> {
 
         v
     }
-    fn witness_encode(data: Vec<u8>) -> String {
-        if data.len() == 0 {
-            return "<>".to_string();
-        }
-
-        hex::encode(data)
-    }
-
-    pub fn reg_addr(reg: usize) -> u32 {
-        (SYSTEM.start() + reg * WORD_SIZE) as u32
-    }
-
-    fn addr_to_index(addr: usize) -> usize {
-        (addr - GUEST_MIN_MEM) / WORD_SIZE
-    }
 
     fn merkle_inclusion(path: &Vec<bool>) -> String {
         let mut scr = format!(
@@ -110,8 +118,8 @@ impl<'a> BitcoinInstructionProcessor<'a> {
     // output:
     // stack: [rem] <new root>
     fn increment_pc(&self, script: String) -> String {
-        let pc_start = Self::to_script_num(self.insn_pc);
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
+        let pc_start = to_script_num(self.insn_pc);
+        let pc_end = to_script_num(self.insn_pc + 4);
 
         // Verify start PC and amend to pc+4,
         format!(
@@ -130,8 +138,8 @@ impl<'a> BitcoinInstructionProcessor<'a> {
     }
 
     fn add_pc(&self, script: String, imm: u32) -> String {
-        let pc_start = Self::to_script_num(self.insn_pc);
-        let pc_end = Self::to_script_num(self.insn_pc + imm);
+        let pc_start = to_script_num(self.insn_pc);
+        let pc_end = to_script_num(self.insn_pc + imm);
 
         // Verify start PC and amend to pc+imm,
         format!(
@@ -204,7 +212,7 @@ impl<'a> BitcoinInstructionProcessor<'a> {
             );
         }
 
-        let addr = Self::reg_addr(reg);
+        let addr = reg_addr(reg);
         let path = self.addr_to_merkle(addr);
         let incl = Self::merkle_inclusion(&path);
 
@@ -444,7 +452,7 @@ OP_EQUALVERIFY # verify root
     // output:
     // stack: [rem]
     fn register_inclusion_script(&self, reg: usize, root_pos: u32) -> String {
-        let addr = Self::reg_addr(reg);
+        let addr = reg_addr(reg);
         let path = self.addr_to_merkle(addr);
         let incl = Self::merkle_inclusion(&path);
 
@@ -496,13 +504,6 @@ OP_DUP
     //
     //        script_num[..n].to_vec()
     //    }
-
-    fn to_script_num<T: Into<i64>>(w: T) -> Vec<u8> {
-        let mut script_num: [u8; 8] = [0; 8];
-        let n = write_scriptint(&mut script_num, w.into());
-
-        script_num[..n].to_vec()
-    }
 }
 
 pub struct Script {
@@ -569,31 +570,31 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
         for b in pc_path {
             println!("bit: {}", b);
         }
 
-        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
-        let imm = Self::to_script_num(dec_insn.imm);
+        let pc_end = to_script_num(self.insn_pc + 4);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
-        let rs1_addr = Self::reg_addr(dec_insn.rs1);
+        let rs1_addr = reg_addr(dec_insn.rs1);
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
@@ -625,7 +626,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
     OP_TOALTSTACK
 ",
             script,
-            Self::witness_encode(imm.clone()),
+            witness_encode(imm.clone()),
             self.amend_register(dec_insn.rd, 1),
         );
 
@@ -636,7 +637,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let start_root = self.pre_tree.root();
         let end_root = self.end_root;
 
-        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_index = addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
         add_tag(rs1_val.clone(), "rs1_val");
         let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
@@ -645,7 +646,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let mut witness = vec![hex::encode(start_root)];
         //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
 
-        witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
         for p in rs1_proof {
             witness.push(hex::encode(p))
         }
@@ -653,18 +654,18 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let rs_val = read_scriptint(&rs1_val).unwrap();
 
         // Value at rs1+imm will be memory address to store to.
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
         let rd_val = rs_val + (dec_insn.imm as i64);
-        let rd_mem = Self::to_script_num(rd_val);
+        let rd_mem = to_script_num(rd_val);
         add_tag(rd_mem.clone(), "rd_val");
         //        self.pre_tree.set_leaf(rd_index, rd_mem.clone());
         //        self.pre_tree.commit();
 
         let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -674,7 +675,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             self.pre_tree.commit();
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         println!("proof that PC is {}:", hex::encode(pc_start));
@@ -717,29 +718,29 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
         for b in pc_path {
             println!("bit: {}", b);
         }
 
-        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
+        let pc_end = to_script_num(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
-        let rs1_addr = Self::reg_addr(dec_insn.rs1);
+        let rs1_addr = reg_addr(dec_insn.rs1);
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
@@ -788,7 +789,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let start_root = self.pre_tree.root();
         let end_root = self.end_root;
 
-        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_index = addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
         add_tag(rs1_val.clone(), "rs1_val");
         let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
@@ -797,25 +798,25 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let mut witness = vec![hex::encode(start_root)];
         //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
 
-        witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
         for p in rs1_proof {
             witness.push(hex::encode(p))
         }
 
         let rs_val = read_scriptint(&rs1_val).unwrap();
 
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
         let rd_val = rs_val << dec_insn.shamt;
-        let rd_mem = Self::to_script_num(rd_val);
+        let rd_mem = to_script_num(rd_val);
         add_tag(rd_mem.clone(), "rd_val");
         //        self.pre_tree.set_leaf(rd_index, rd_mem.clone());
         //        self.pre_tree.commit();
 
         let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -825,7 +826,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             self.pre_tree.commit();
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         println!("proof that PC is {}:", hex::encode(pc_start));
@@ -895,26 +896,26 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = Self::to_script_num(self.insn_pc);
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
-        let imm = Self::to_script_num(dec_insn.imm);
+        let pc_start = to_script_num(self.insn_pc);
+        let pc_end = to_script_num(self.insn_pc + 4);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
         // NOTE: for some reason imm is already shifted, not entirely sure why.
         let res = dec_insn.imm as u32;
 
-        let rd_val = Self::to_script_num(res);
+        let rd_val = to_script_num(res);
         //let rd_val = imm.clone();
 
         println!(
@@ -951,13 +952,13 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         // We'll reverse it later.
         let mut witness = vec![hex::encode(start_root)];
 
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
         add_tag(rd_val.clone(), "rd_val");
 
         let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -967,7 +968,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             self.pre_tree.commit();
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
@@ -1001,19 +1002,19 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = Self::to_script_num(self.insn_pc);
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
-        let imm = Self::to_script_num(dec_insn.imm);
+        let pc_start = to_script_num(self.insn_pc);
+        let pc_end = to_script_num(self.insn_pc + 4);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
@@ -1022,7 +1023,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         // NOTE: for some reason imm is already shifted, not entirely sure why.
         let res = self.insn_pc + (dec_insn.imm as u32);
 
-        let rd_val = Self::to_script_num(res);
+        let rd_val = to_script_num(res);
         //let rd_val = imm.clone();
 
         println!(
@@ -1060,13 +1061,13 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let mut witness = vec![hex::encode(start_root)];
 
         // Value at rs1+imm will be memory address to store to.
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
         add_tag(rd_val.clone(), "rd_val");
 
         let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -1076,7 +1077,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             self.pre_tree.commit();
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         //        self.pre_tree.set_leaf(pc_index, pc_end.clone());
@@ -1131,19 +1132,19 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
 
-        let mut pc_end = Self::to_script_num(self.insn_pc + 4);
-        let imm = Self::to_script_num(dec_insn.imm);
+        let mut pc_end = to_script_num(self.insn_pc + 4);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
@@ -1159,11 +1160,11 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         //        );
         println!("imm {:x} for script->{}", dec_insn.imm, hex::encode(imm),);
 
-        let rs2_addr = Self::reg_addr(dec_insn.rs2);
+        let rs2_addr = reg_addr(dec_insn.rs2);
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let rs1_addr = Self::reg_addr(dec_insn.rs1);
+        let rs1_addr = reg_addr(dec_insn.rs1);
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
@@ -1195,7 +1196,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 
         let branch_pc = self.insn_pc.wrapping_add(dec_insn.imm as u32);
         println!("branch_pc={:x}", branch_pc);
-        let branch_val = Self::to_script_num(branch_pc);
+        let branch_val = to_script_num(branch_pc);
 
         script = format!(
             "{}
@@ -1225,7 +1226,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let start_root = self.pre_tree.root();
         let end_root = self.end_root;
 
-        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_index = addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
         add_tag(rs1_val.clone(), "rs1_val");
         let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
@@ -1234,22 +1235,22 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let mut witness = vec![hex::encode(start_root)];
         //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
 
-        witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
         for p in rs1_proof {
             witness.push(hex::encode(p))
         }
 
-        let rs2_index = Self::addr_to_index(rs2_addr as usize);
+        let rs2_index = addr_to_index(rs2_addr as usize);
         let rs2_val = self.pre_tree.get_leaf(rs2_index);
         add_tag(rs2_val.clone(), "rs2_val");
         let rs2_proof = self.pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
 
-        witness.push(format!("{}", Self::witness_encode(rs2_val.clone())));
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
         for p in rs2_proof {
             witness.push(hex::encode(p))
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         for p in start_pc_proof.clone() {
@@ -1319,33 +1320,33 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         );
         println!("dec_insn={:?}", dec_insn);
         println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
         for b in pc_path {
             println!("bit: {}", b);
         }
 
-        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
+        let pc_end = to_script_num(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
-        let imm = Self::to_script_num(dec_insn.imm);
+        let imm = to_script_num(dec_insn.imm);
 
-        let rs1_addr = Self::reg_addr(dec_insn.rs1);
+        let rs1_addr = reg_addr(dec_insn.rs1);
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(rd_val.clone(), "rd_val");
         println!(
@@ -1356,7 +1357,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         );
 
         // get value in rs1 and convert from scriptint.
-        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_index = addr_to_index(rs1_addr as usize);
         println!("rs1addr={}, index={}", rs1_addr, rs1_index);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
         add_tag(rs1_val.clone(), "rs1_val");
@@ -1372,7 +1373,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             dec_insn.imm,
             lw_addr
         );
-        let lw_index = Self::addr_to_index(lw_addr as usize);
+        let lw_index = addr_to_index(lw_addr as usize);
         let lw_path = self.addr_to_merkle(lw_addr as u32);
 
         let mut script = push_altstack(&self.str);
@@ -1422,7 +1423,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 
         for b in (0..bits).rev() {
             let n = 1 << b;
-            let script_num = Self::to_script_num(n);
+            let script_num = to_script_num(n);
             script = format!(
                 "{}
     OP_FROMALTSTACK
@@ -1435,7 +1436,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             );
         }
 
-        let offset = Self::to_script_num(GUEST_MIN_MEM as u32);
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
 
         script = format!(
             "{}
@@ -1487,7 +1488,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 
         let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
 
-        witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
         for p in rs1_proof.clone() {
             witness.push(hex::encode(p))
         }
@@ -1501,7 +1502,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             lw_index,
         );
 
-        witness.push(format!("{}", Self::witness_encode(mem_val.clone())));
+        witness.push(format!("{}", witness_encode(mem_val.clone())));
 
         let sw_proof = self.pre_tree.proof(lw_index, mem_val.clone()).unwrap();
 
@@ -1517,7 +1518,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 
         let rd_proof = self.pre_tree.proof(rd_index, rd_val.clone()).unwrap();
 
-        witness.push(format!("{}", Self::witness_encode(rd_val.clone())));
+        witness.push(format!("{}", witness_encode(rd_val.clone())));
         for p in rd_proof.clone() {
             witness.push(hex::encode(p))
         }
@@ -1525,7 +1526,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         self.pre_tree.set_leaf(rd_index, mem_val.clone());
         self.pre_tree.commit();
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
@@ -1576,33 +1577,33 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         );
         println!("dec_insn={:?}", dec_insn);
         println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
         for b in pc_path {
             println!("bit: {}", b);
         }
 
-        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
-        let pc_end = Self::to_script_num(self.insn_pc + 4);
+        let pc_end = to_script_num(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
-        let imm = Self::to_script_num(dec_insn.imm);
+        let imm = to_script_num(dec_insn.imm);
 
-        let rs1_addr = Self::reg_addr(dec_insn.rs1);
+        let rs1_addr = reg_addr(dec_insn.rs1);
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let rs2_addr = Self::reg_addr(dec_insn.rs2);
+        let rs2_addr = reg_addr(dec_insn.rs2);
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let rs2_index = Self::addr_to_index(rs2_addr as usize);
+        let rs2_index = addr_to_index(rs2_addr as usize);
         let rs2_val = self.pre_tree.get_leaf(rs2_index);
         add_tag(rs2_val.clone(), "rs2_val");
         println!(
@@ -1613,7 +1614,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         );
 
         // get value in rs1 and convert from scriptint.
-        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_index = addr_to_index(rs1_addr as usize);
         println!("rs1addr={}, index={}", rs1_addr, rs1_index);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
         add_tag(rs1_val.clone(), "rs1_val");
@@ -1629,7 +1630,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             dec_insn.imm,
             sw_addr
         );
-        let sw_index = Self::addr_to_index(sw_addr as usize);
+        let sw_index = addr_to_index(sw_addr as usize);
         let sw_path = self.addr_to_merkle(sw_addr as u32);
 
         let mut script = format!(
@@ -1698,7 +1699,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 
         for b in (0..bits).rev() {
             let n = 1 << b;
-            let script_num = Self::to_script_num(n);
+            let script_num = to_script_num(n);
             script = format!(
                 "{}
     OP_FROMALTSTACK
@@ -1711,7 +1712,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             );
         }
 
-        let offset = Self::to_script_num(GUEST_MIN_MEM as u32);
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
 
         script = format!(
             "{}
@@ -1748,7 +1749,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 
         let rs2_proof = self.pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
 
-        witness.push(format!("{}", Self::witness_encode(rs2_val.clone())));
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
         for p in rs2_proof.clone() {
             witness.push(hex::encode(p))
         }
@@ -1769,7 +1770,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             sw_index,
         );
 
-        witness.push(format!("{}", Self::witness_encode(pre_mem_val.clone())));
+        witness.push(format!("{}", witness_encode(pre_mem_val.clone())));
 
         let sw_proof = self.pre_tree.proof(sw_index, pre_mem_val.clone()).unwrap();
 
@@ -1786,7 +1787,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         self.pre_tree.set_leaf(sw_index, rs2_val.clone());
         self.pre_tree.commit();
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
@@ -1822,19 +1823,19 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let end_root = self.end_root;
         add_tag(end_root.to_vec(), "end_root");
 
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = Self::to_script_num(self.insn_pc);
-        let pc_end = Self::to_script_num(self.insn_pc + dec_insn.imm as u32);
-        let imm = Self::to_script_num(dec_insn.imm);
+        let pc_start = to_script_num(self.insn_pc);
+        let pc_end = to_script_num(self.insn_pc + dec_insn.imm as u32);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
@@ -1843,7 +1844,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         // NOTE: for some reason imm is already shifted, not entirely sure why.
         let res = self.insn_pc + 4;
 
-        let rd_val = Self::to_script_num(res);
+        let rd_val = to_script_num(res);
         //let rd_val = imm.clone();
 
         println!(
@@ -1884,13 +1885,13 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         // We'll reverse it later.
         let mut witness = vec![hex::encode(start_root)];
 
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
         add_tag(rd_val.clone(), "rd_val");
 
         let rd_proof = self.pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", Self::witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -1900,7 +1901,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             self.pre_tree.commit();
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
@@ -1935,19 +1936,19 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         add_tag(end_root.to_vec(), "end_root");
 
         println!("pc is {:b}", self.insn_pc);
-        let pc_addr = Self::reg_addr(REG_MAX);
+        let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = Self::to_script_num(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
 
-        let mut pc_end = Self::to_script_num(self.insn_pc + 4);
-        let imm = Self::to_script_num(dec_insn.imm);
+        let mut pc_end = to_script_num(self.insn_pc + 4);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
@@ -1959,11 +1960,11 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             hex::encode(imm.clone()),
         );
 
-        let rd_addr = Self::reg_addr(dec_insn.rd);
+        let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
 
-        let rs1_addr = Self::reg_addr(dec_insn.rs1);
+        let rs1_addr = reg_addr(dec_insn.rs1);
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
@@ -2013,7 +2014,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
 ",
             script,
             hex::encode(pc_start.clone()),
-            Self::witness_encode(imm.clone()),
+            witness_encode(imm.clone()),
             self.amend_register(REG_MAX, 1),
         );
 
@@ -2022,7 +2023,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let start_root = self.pre_tree.root();
         let end_root = self.end_root;
 
-        let rs1_index = Self::addr_to_index(rs1_addr as usize);
+        let rs1_index = addr_to_index(rs1_addr as usize);
         let rs1_val = self.pre_tree.get_leaf(rs1_index);
         add_tag(rs1_val.clone(), "rs1_val");
         let rs1_proof = self.pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
@@ -2031,17 +2032,17 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let mut witness = vec![hex::encode(start_root)];
         //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
 
-        witness.push(format!("{}", Self::witness_encode(rs1_val.clone())));
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
         for p in rs1_proof {
             witness.push(hex::encode(p))
         }
 
-        let rd_index = Self::addr_to_index(rd_addr as usize);
+        let rd_index = addr_to_index(rd_addr as usize);
         let rd_val = self.pre_tree.get_leaf(rd_index);
         add_tag(rd_val.clone(), "rd_val");
         let rd_proof = self.pre_tree.proof(rd_index, rd_val.clone()).unwrap();
 
-        witness.push(format!("{}", Self::witness_encode(rd_val.clone())));
+        witness.push(format!("{}", witness_encode(rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -2051,7 +2052,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
             self.pre_tree.commit();
         }
 
-        let pc_index = Self::addr_to_index(pc_addr as usize);
+        let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = self.pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         for p in start_pc_proof.clone() {
@@ -2061,7 +2062,7 @@ impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
         let rs_val = read_scriptint(&rs1_val).unwrap();
         let branch_pc = (rs_val as u32).wrapping_add(dec_insn.imm as u32);
         println!("branch_pc={:x}", branch_pc);
-        let branch_val = Self::to_script_num(branch_pc);
+        let branch_val = to_script_num(branch_pc);
 
         self.pre_tree.set_leaf(pc_index, branch_val.clone());
         self.pre_tree.commit();
