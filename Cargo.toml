@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#risc0-zkvm = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm", features = ["prove"] }
-risc0-zkvm = { version = "0.19.1", features = ["prove"] }
-#risc0-zkvm-platform = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm/platform"}
-risc0-zkvm-platform = { version = "0.19.1" }
+risc0-zkvm = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm", features = ["prove"] }
+#risc0-zkvm = { version = "0.19.1", features = ["prove"] }
+risc0-zkvm-platform = {path = "/Users/johan.halseth/code/risc0/risc0/zkvm/platform"}
+#risc0-zkvm-platform = { version = "0.19.1" }
 #fast_merkle = {path = "/Users/johan.halseth/code/fast_merkle"}
 fast_merkle = { git = "https://github.com/halseth/fast_merkle.git" }
 rrs-lib = "0.1"

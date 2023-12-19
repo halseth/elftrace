@@ -1,6 +1,6 @@
 use bitcoin::script::write_scriptint;
 use fast_merkle::Tree;
-//use risc0_zkvm::host::server::opcode::{OpCode};
+use risc0_zkvm::host::server::opcode::OpCode;
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
@@ -47,11 +47,45 @@ fn main() {
     let img = MemoryImage::new(&program, PAGE_SIZE as u32).unwrap();
     println!("got starting memory: {}", img.pc);
 
+    let mem_len = guest_mem_len();
+
+    let mut first = true;
+    let mut addr: u32 = 0;
+    //    for _addr in program.program_range.step_by(WORD_SIZE) {
+    //        addr = _addr;
+    //        if first {
+    //            println!("start 0x{:x}", addr);
+    //        }
+    //        first = false;
+    //
+    //        let mut bytes = [0_u8; WORD_SIZE];
+    //        img.load_region_in_page(addr, &mut bytes);
+    //
+    //        let insn = u32::from_le_bytes(bytes);
+    //
+    //        let opcode = OpCode::decode(insn, addr).unwrap();
+    //        println!("0x{:x}: {:?}", addr, opcode);
+    //        let dummy_num: u32 = 3;
+    //        let mut outputter = BitcoinInstructionProcessor {
+    //            str: format!("# pc: {:x}\t{:?}", addr, opcode),
+    //            //str: format!("# pc: {:x}", addr),
+    //            insn_pc: addr,
+    //            start_addr: GUEST_MIN_MEM as u32,
+    //            mem_len: mem_len as u32,
+    //            //pre_tree: None,
+    //            //end_root: None,
+    //            dummy_num: &dummy_num,
+    //        };
+    //
+    //        let desc = process_instruction(&mut outputter, insn).unwrap();
+    //    }
+
+    println!("end 0x{:x}", addr);
+
     let _session = exec.run().unwrap();
 
     println!("trace: {:?}", trace.lock().unwrap().clone());
 
-    let mem_len = guest_mem_len();
     let zero_val = to_script_num(0u32.to_le_bytes());
     let mut mem_tree = Tree::new_with_default(mem_len, zero_val.clone()).unwrap();
     let start = Instant::now();
@@ -96,14 +130,16 @@ fn main() {
                 if pcc != 0 {
                     //let opcode = current_opcode.unwrap();
                     //println!("executing opcode {:?}", opcode);
+                    let dummy_num: u32 = 3;
                     let mut outputter = BitcoinInstructionProcessor {
                         //str: format!("# {:?}", opcode),
                         str: format!("# pc: {:x}", pcc),
                         insn_pc: pcc,
                         start_addr: GUEST_MIN_MEM as u32,
                         mem_len: mem_len as u32,
-                        pre_tree: &mut script_tree,
-                        end_root: root,
+                        //pre_tree: Some(&mut script_tree),
+                        //end_root: Some(root),
+                        dummy_num: &dummy_num,
                     };
                     let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
                     //println!("{}", desc);
@@ -114,14 +150,20 @@ fn main() {
                         File::create(format!("trace/ins_{}_script.txt", ins_str)).unwrap();
                     write!(script_file, "{}", desc.script).unwrap();
 
+                    let (witness, mut w_tags) =
+                        desc.witness_gen.generate_witness(&mut script_tree, root);
+
+                    let tags = w_tags.extend(desc.tags.into_iter());
+
                     let mut witness_file =
                         File::create(format!("trace/ins_{}_witness.txt", ins_str)).unwrap();
-                    write!(witness_file, "{}", desc.witness.join("\n")).unwrap();
+                    write!(witness_file, "{}", witness.join("\n")).unwrap();
 
-                    let tags_file = File::create(format!("trace/ins_{}_tags.json", ins_str)).unwrap();
+                    let tags_file =
+                        File::create(format!("trace/ins_{}_tags.json", ins_str)).unwrap();
 
                     let writer = BufWriter::new(tags_file);
-                    serde_json::to_writer_pretty(writer, &desc.tags).unwrap();
+                    serde_json::to_writer_pretty(writer, &tags).unwrap();
 
                     let mut hasher = Sha256::new();
                     let start_root = roots[roots.len() - 2];
