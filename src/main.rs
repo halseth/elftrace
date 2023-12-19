@@ -153,7 +153,7 @@ fn main() {
                     let (witness, mut w_tags) =
                         desc.witness_gen.generate_witness(&mut script_tree, root);
 
-                    let tags = w_tags.extend(desc.tags.into_iter());
+                    w_tags.extend(desc.tags.into_iter());
 
                     let mut witness_file =
                         File::create(format!("trace/ins_{}_witness.txt", ins_str)).unwrap();
@@ -163,7 +163,7 @@ fn main() {
                         File::create(format!("trace/ins_{}_tags.json", ins_str)).unwrap();
 
                     let writer = BufWriter::new(tags_file);
-                    serde_json::to_writer_pretty(writer, &tags).unwrap();
+                    serde_json::to_writer_pretty(writer, &w_tags).unwrap();
 
                     let mut hasher = Sha256::new();
                     let start_root = roots[roots.len() - 2];
