@@ -80,6 +80,12 @@ fn main() {
 
         println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
         let desc = process_instruction(&mut outputter, insn).unwrap();
+
+        let pc_str = format!("{:05x}", addr);
+        let mut script_file =
+            File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
+        write!(script_file, "{}", desc.script).unwrap();
+
         scripts.insert(addr, desc);
     }
 
@@ -134,21 +140,19 @@ fn main() {
                     let desc = scripts.get(&pcc).unwrap();
                     let ins_str = format!("{:04x}", ins);
 
-                    let mut script_file =
-                        File::create(format!("trace/ins_{}_script.txt", ins_str)).unwrap();
-                    write!(script_file, "{}", desc.script).unwrap();
 
                     let (witness, mut w_tags) =
                         desc.witness_gen.generate_witness(&mut script_tree, root);
 
                     w_tags.extend(desc.tags.clone().into_iter());
 
+                    let pc_str = format!("{:05x}", pcc);
                     let mut witness_file =
-                        File::create(format!("trace/ins_{}_witness.txt", ins_str)).unwrap();
+                        File::create(format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str)).unwrap();
                     write!(witness_file, "{}", witness.join("\n")).unwrap();
 
                     let tags_file =
-                        File::create(format!("trace/ins_{}_tags.json", ins_str)).unwrap();
+                        File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str)).unwrap();
 
                     let writer = BufWriter::new(tags_file);
                     serde_json::to_writer_pretty(writer, &w_tags).unwrap();
@@ -168,7 +172,7 @@ fn main() {
                     );
 
                     let mut commitfile =
-                        File::create(format!("trace/ins_{}_commitment.txt", ins_str)).unwrap();
+                        File::create(format!("trace/ins_{}_pc_{}_commitment.txt", ins_str, pc_str)).unwrap();
 
                     write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
 
