@@ -1370,14 +1370,14 @@ impl WitnessGenerator for crate::processor::WitnessJalr {
     }
 }
 
-pub struct Script<'a> {
+pub struct Script {
     pub script: String,
     pub tags: HashMap<String, String>,
-    pub witness_gen: Box<dyn WitnessGenerator + 'a>,
+    pub witness_gen: Box<dyn WitnessGenerator>,
 }
 
 impl<'a> InstructionProcessor for BitcoinInstructionProcessor<'a> {
-    type InstructionResult = Script<'a>;
+    type InstructionResult = Script;
 
     fn process_add(&mut self, dec_insn: RType) -> Self::InstructionResult {
         todo!()
