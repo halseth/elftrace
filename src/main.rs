@@ -1,6 +1,6 @@
 use bitcoin::script::write_scriptint;
 use fast_merkle::Tree;
-use risc0_zkvm::host::server::opcode::OpCode;
+use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
@@ -14,6 +14,7 @@ use std::io::{BufWriter, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{env, fs};
+use std::collections::HashMap;
 
 mod processor;
 
@@ -51,34 +52,36 @@ fn main() {
 
     let mut first = true;
     let mut addr: u32 = 0;
-    //    for _addr in program.program_range.step_by(WORD_SIZE) {
-    //        addr = _addr;
-    //        if first {
-    //            println!("start 0x{:x}", addr);
-    //        }
-    //        first = false;
-    //
-    //        let mut bytes = [0_u8; WORD_SIZE];
-    //        img.load_region_in_page(addr, &mut bytes);
-    //
-    //        let insn = u32::from_le_bytes(bytes);
-    //
-    //        let opcode = OpCode::decode(insn, addr).unwrap();
-    //        println!("0x{:x}: {:?}", addr, opcode);
-    //        let dummy_num: u32 = 3;
-    //        let mut outputter = BitcoinInstructionProcessor {
-    //            str: format!("# pc: {:x}\t{:?}", addr, opcode),
-    //            //str: format!("# pc: {:x}", addr),
-    //            insn_pc: addr,
-    //            start_addr: GUEST_MIN_MEM as u32,
-    //            mem_len: mem_len as u32,
-    //            //pre_tree: None,
-    //            //end_root: None,
-    //            dummy_num: &dummy_num,
-    //        };
-    //
-    //        let desc = process_instruction(&mut outputter, insn).unwrap();
-    //    }
+    let mut scripts = HashMap::new();
+    for _addr in program.program_range.step_by(WORD_SIZE) {
+        addr = _addr;
+        if first {
+            println!("start 0x{:x}", addr);
+        }
+        first = false;
+
+        let mut bytes = [0_u8; WORD_SIZE];
+        img.load_region_in_page(addr, &mut bytes);
+
+        let insn = u32::from_le_bytes(bytes);
+
+        let opcode = OpCode::decode(insn, addr).unwrap();
+        println!("0x{:x}: {:?}", addr, opcode);
+        if opcode.major == MajorType::ECall {
+            continue;
+        }
+        let mut outputter = BitcoinInstructionProcessor {
+            str: format!("# pc: {:x}\t{:?}", addr, opcode),
+            //str: format!("# pc: {:x}", addr),
+            insn_pc: addr,
+            start_addr: GUEST_MIN_MEM as u32,
+            mem_len: mem_len as u32,
+        };
+
+        println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
+        let desc = process_instruction(&mut outputter, insn).unwrap();
+        scripts.insert(addr, desc);
+    }
 
     println!("end 0x{:x}", addr);
 
@@ -128,22 +131,7 @@ fn main() {
 
                 let pcc = current_insn.0;
                 if pcc != 0 {
-                    //let opcode = current_opcode.unwrap();
-                    //println!("executing opcode {:?}", opcode);
-                    let mut outputter = BitcoinInstructionProcessor {
-                        //str: format!("# {:?}", opcode),
-                        str: format!("# pc: {:x}", pcc),
-                        insn_pc: pcc,
-                        start_addr: GUEST_MIN_MEM as u32,
-                        mem_len: mem_len as u32,
-                        //pre_tree: Some(&mut script_tree),
-                        //end_root: Some(root),
-                    };
-                    let desc = process_instruction(&mut outputter, current_insn.1).unwrap();
-                    //let dummy_num: u32 = 3;
-                    //    dummy_num: &dummy_num,
-                    //println!("{}", desc);
-
+                    let desc = scripts.get(&pcc).unwrap();
                     let ins_str = format!("{:04x}", ins);
 
                     let mut script_file =
@@ -153,7 +141,7 @@ fn main() {
                     let (witness, mut w_tags) =
                         desc.witness_gen.generate_witness(&mut script_tree, root);
 
-                    w_tags.extend(desc.tags.into_iter());
+                    w_tags.extend(desc.tags.clone().into_iter());
 
                     let mut witness_file =
                         File::create(format!("trace/ins_{}_witness.txt", ins_str)).unwrap();
