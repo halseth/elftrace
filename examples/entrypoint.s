@@ -15,7 +15,7 @@ __start:
 	sw	ra,28(sp)	# store ra on the stack
 	sw	s0,24(sp)	# store s0 on the stack
 	addi	s0,sp,32	# store old stack pointer into s0
-	call	runcontract	# call runcontract with a0=x=2
+	call	runcontract	# call runcontract with x=a0
 	sw	a0,-24(s0)	# store a0=y (return value from runcontract) on the stack
 	lw	ra,28(sp)	# load original ra from stack
 	lw	s0,24(sp)	# load original s0 from stack
