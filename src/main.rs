@@ -1,20 +1,21 @@
-use bitcoin::script::write_scriptint;
+use bitcoin::script::{read_scriptint, write_scriptint};
 use fast_merkle::Tree;
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
-use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
 use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
+use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_MAX};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{env, fs};
-use std::collections::HashMap;
 
 mod processor;
 
@@ -28,6 +29,10 @@ fn main() {
 
     let file_path = &args[1];
     println!("parsing file {}", file_path);
+
+    let input = &args[2];
+    let x = u32::from_str(input).unwrap();
+    println!("using x={} as program input", x);
 
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace = mtxs.clone();
@@ -43,9 +48,12 @@ fn main() {
     let elf_contents = fs::read(file_path).unwrap();
     let mut exec = ExecutorImpl::from_elf(env, &elf_contents).unwrap();
 
+    // Input value is inserted into A= before execution starts.
+    exec.write_register(REG_A0, x);
+
     // Recreated executor starting memory.
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
-    let img = MemoryImage::new(&program, PAGE_SIZE as u32).unwrap();
+    let img = exec.memory();
     println!("got starting memory: {}", img.pc);
 
     let mem_len = guest_mem_len();
@@ -82,8 +90,7 @@ fn main() {
         let desc = process_instruction(&mut outputter, insn).unwrap();
 
         let pc_str = format!("{:05x}", addr);
-        let mut script_file =
-            File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
+        let mut script_file = File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
         write!(script_file, "{}", desc.script).unwrap();
 
         scripts.insert(addr, desc);
@@ -140,7 +147,6 @@ fn main() {
                     let desc = scripts.get(&pcc).unwrap();
                     let ins_str = format!("{:04x}", ins);
 
-
                     let (witness, mut w_tags) =
                         desc.witness_gen.generate_witness(&mut script_tree, root);
 
@@ -148,11 +154,13 @@ fn main() {
 
                     let pc_str = format!("{:05x}", pcc);
                     let mut witness_file =
-                        File::create(format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str)).unwrap();
+                        File::create(format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str))
+                            .unwrap();
                     write!(witness_file, "{}", witness.join("\n")).unwrap();
 
                     let tags_file =
-                        File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str)).unwrap();
+                        File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str))
+                            .unwrap();
 
                     let writer = BufWriter::new(tags_file);
                     serde_json::to_writer_pretty(writer, &w_tags).unwrap();
@@ -171,8 +179,11 @@ fn main() {
                         hex::encode(hash_array)
                     );
 
-                    let mut commitfile =
-                        File::create(format!("trace/ins_{}_pc_{}_commitment.txt", ins_str, pc_str)).unwrap();
+                    let mut commitfile = File::create(format!(
+                        "trace/ins_{}_pc_{}_commitment.txt",
+                        ins_str, pc_str
+                    ))
+                    .unwrap();
 
                     write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
 
@@ -189,8 +200,8 @@ fn main() {
                     panic!("root mismatch: {} vs {}", r1, r2);
                 }
 
-                //let opcode = OpCode::decode(*insn, *pc).unwrap();
-                //println!("next opcode {:?}", opcode);
+                let opcode = OpCode::decode(*insn, *pc).unwrap();
+                println!("next opcode {:?}", opcode);
                 //current_opcode = Some(opcode);
                 ins += 1;
 
@@ -211,6 +222,10 @@ fn main() {
 
     let root = mem_tree.commit();
     println!("final root[{}]={}", ins, hex::encode(root));
+
+    // Return value is found in A0 after execution.
+    let y = exec.read_register(REG_A0);
+    println!("end y={}", y);
 }
 
 fn guest_mem_len() -> usize {
