@@ -3,8 +3,12 @@ Verify RISC-V binary execution in Bitcoin script.
 
 ## What is this?
 `elftrace` is a proof of concept tool used to trace the execution of RISCV-32
-binaries, and and generate Bitcoin script that can be used to verify this
+binaries (ELFs), and and generate Bitcoin script that can be used to verify this
 execution on-chain.
+
+## How do I use it?
+See the [compilation doc](./docs/compile.md) for an example of how to trace a
+RISC-V binary.
 
 ## What is this useful for?
 Using this you can use your favourite language to write arbitrary programs that
