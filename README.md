@@ -29,6 +29,12 @@ style script in order to set up a proper smart contract. See
 [mattlab](https://github.com/halseth/mattlab/blob/main/docs/challenge.md) for
 an example.
 
+## Are there any limitations?
+This is very much in a POC stage. The compiler currently expects the compiled
+program to take a single integer as input, and outputs a single integer. There
+is also a few RISCV opcodes not yet implemented, I just wanted to build a few
+more non-toy programs to test it on before making that effort.
+
 ## When can I use this on mainnet?
 In order to use this on mainnet we would need to deploy a _covenant opcode_.
 `elftrace` is based on the `OP_CHECKCONTRACTVERIFY` opcode proposed by
