@@ -594,10 +594,10 @@ impl WitnessGenerator for WitnessAddi {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        for p in start_pc_proof.clone() {
-            println!("{}:", hex::encode(p));
-        }
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -680,10 +680,10 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
         let pc_start = to_script_num(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        println!("proof that PC is {}:", hex::encode(pc_start));
-        for p in start_pc_proof.clone() {
-            println!("{}:", hex::encode(p));
-        }
+        //        println!("proof that PC is {}:", hex::encode(pc_start));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
 
         let pc_end = to_script_num(self.insn_pc + 4);
         pre_tree.set_leaf(pc_index, pc_end.clone());
