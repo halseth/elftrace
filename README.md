@@ -24,15 +24,17 @@ fraud proof.
 
 ## How can I use elftrace to write Bitcoin smart contracts?
 `elftrace` only (currently) generates the scripts needed to validate the
-program execution. You will need to wrap the program in "MATT challenge" style
-contract in order to set up a proper smart contract. See
+program execution. You will need to wrap the program in a "MATT challenge"
+style script in order to set up a proper smart contract. See
 [mattlab](https://github.com/halseth/mattlab/blob/main/docs/challenge.md) for
 an example.
 
-## Can I use this on mainnet today?
+## When can I use this on mainnet?
 In order to use this on mainnet we would need to deploy a _covenant opcode_.
 `elftrace` is based on the `OP_CHECKCONTRACTVERIFY` opcode proposed by
 [MATT](https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-November/021182.html).
+
+Come join us in getting covenants deployed on Bitcoin! 🤠
 
 ## What does this enable on Bitcoin?
 Having a covenant deployed on bitcoin would enable us to use this to create
