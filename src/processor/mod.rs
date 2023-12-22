@@ -1429,9 +1429,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
-        for b in pc_path {
-            println!("bit: {}", b);
-        }
+//        for b in pc_path {
+//            println!("bit: {}", b);
+//        }
 
         let pc_start = to_script_num(self.insn_pc);
         println!(
@@ -1513,9 +1513,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
-        for b in pc_path {
-            println!("bit: {}", b);
-        }
+//        for b in pc_path {
+//            println!("bit: {}", b);
+//        }
 
         let pc_start = to_script_num(self.insn_pc);
         println!(
@@ -1924,9 +1924,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
-        for b in pc_path {
-            println!("bit: {}", b);
-        }
+//        for b in pc_path {
+//            println!("bit: {}", b);
+//        }
 
         let pc_start = to_script_num(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
@@ -2095,9 +2095,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
-        for b in pc_path {
-            println!("bit: {}", b);
-        }
+//        for b in pc_path {
+//            println!("bit: {}", b);
+//        }
 
         let pc_start = to_script_num(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
