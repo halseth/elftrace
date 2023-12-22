@@ -54,7 +54,7 @@ fn main() {
     // Recreated executor starting memory.
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
     let img = exec.memory();
-    println!("got starting memory: {}", img.pc);
+    println!("got starting memory: 0x{:x}", img.pc);
 
     let mem_len = guest_mem_len();
 
