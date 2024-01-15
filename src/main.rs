@@ -89,6 +89,8 @@ fn main() {
         println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
         let desc = process_instruction(&mut outputter, insn).unwrap();
 
+        fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
+
         let pc_str = format!("{:05x}", addr);
         let mut script_file = File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
         write!(script_file, "{}", desc.script).unwrap();
