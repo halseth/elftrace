@@ -327,14 +327,3 @@ fn addr_to_index(addr: usize) -> usize {
     (addr - GUEST_MIN_MEM) / WORD_SIZE
 }
 
-pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
-    let mut results = Vec::new();
-
-    for line in contents.lines() {
-        if line.contains(query) {
-            results.push(line);
-        }
-    }
-
-    results
-}
