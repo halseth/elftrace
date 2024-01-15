@@ -301,8 +301,7 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
     //    println!("pages {}", temp_image.pages.len());
     //    println!("max memory 0x{:08x}",GUEST_MAX_MEM);
 
-    // TODO: use full memory for real applications
-    let end_mem = 0x0002_0000;
+    let end_mem = GUEST_MAX_MEM;
     for addr in (GUEST_MIN_MEM..end_mem).step_by(WORD_SIZE) {
         let b = load_addr(temp_image, addr);
         set_commit(fast_tree, addr, b);
