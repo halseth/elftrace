@@ -297,6 +297,7 @@ impl BitcoinInstructionProcessor {
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
         for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
             v.push(b != 0);
         }
 
@@ -314,7 +315,10 @@ impl BitcoinInstructionProcessor {
 
         // Use vector to traverse the tree.
         for right in path {
-            if *right {
+            // If current element (top of stack) is left branch in path,
+            // swap since cat concatenates x1|x0 where x0 is top stack element.
+            //if *right {
+            if !(*right) {
                 scr += "OP_SWAP\n"
             }
 
@@ -443,7 +447,7 @@ impl BitcoinInstructionProcessor {
             script,
         );
 
-        for p in path {
+        for right in path {
             script = format!(
                 "{}
 # Use merkle sibling together with new leaf on alt stack to find new merkle
@@ -453,7 +457,8 @@ OP_FROMALTSTACK # get new node from alt stack",
                 script
             );
 
-            if p {
+            if !right {
+                //if right {
                 script = format!(
                     "{}
 OP_SWAP # swap direcion
@@ -469,7 +474,8 @@ OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
                 script
             );
 
-            if p {
+            if !right {
+                //if right {
                 script = format!(
                     "{}
 OP_SWAP # swap direcion
