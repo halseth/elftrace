@@ -104,8 +104,10 @@ fn main() {
 
     println!("trace: {:?}", trace.lock().unwrap().clone());
 
-    let zero_val = to_script_num(0u32.to_le_bytes());
-    let mut mem_tree = Tree::new_with_default(mem_len, zero_val.clone()).unwrap();
+    //let zero_val = to_script_num(0u32.to_le_bytes());
+    //let zero_val = 0u32.to_le_bytes();
+    let zero_val = [0u8; 32];
+    let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
     let start = Instant::now();
     let start_root = build_merkle(&mut mem_tree, &img);
     let duration = start.elapsed();
@@ -203,7 +205,7 @@ fn main() {
                 }
 
                 let opcode = OpCode::decode(*insn, *pc).unwrap();
-                println!("next opcode {:?}", opcode);
+                println!("next opcode {:x}: {:?}", *pc, opcode);
                 //current_opcode = Some(opcode);
                 ins += 1;
 
@@ -254,7 +256,7 @@ fn guest_mem_len() -> usize {
 }
 
 fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
-    println!("register {} (SP={}) set to {:x}", reg, reg == REG_SP, val);
+    println!("register {} (SP={}) set to {:08x}", reg, reg == REG_SP, val);
     let sys_addr = SYSTEM.start();
     let addr = sys_addr + (reg * WORD_SIZE);
 
@@ -263,6 +265,14 @@ fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
 
 fn set_addr(fast_tree: &mut Tree, addr: usize, val: u32) {
     let b = val.to_le_bytes();
+    let mem = to_mem_repr(b);
+    println!(
+        "memory addr={:x}  set to {:08x} (le={}) mem={}",
+        addr,
+        val,
+        hex::encode(b),
+        hex::encode(mem),
+    );
     set_commit(fast_tree, addr, b);
 }
 
@@ -271,6 +281,22 @@ fn load_addr(img: &MemoryImage, addr: usize) -> [u8; 4] {
     img.load_region_in_page(addr as u32, &mut b[..]);
 
     b
+}
+
+fn to_mem_repr(b: [u8; 4]) -> Vec<u8> {
+    let bits = 32;
+    let w = u32::from_le_bytes(b);
+
+    let mut v: Vec<u8> = vec![];
+    for b in (0..bits).map(|n| (w >> n) & 1) {
+        if b == 0 {
+            v.push(0);
+        } else {
+            v.push(1);
+        }
+    }
+
+    v
 }
 
 fn to_script_num(b: [u8; 4]) -> Vec<u8> {
@@ -282,16 +308,20 @@ fn to_script_num(b: [u8; 4]) -> Vec<u8> {
     script_num[..n].to_vec()
 }
 fn set_commit(fast_tree: &mut Tree, addr: usize, b: [u8; 4]) {
-    let script_num = to_script_num(b.clone());
+    //println!("setting addr {:x}", addr);
+    // let script_num = to_script_num(b.clone());
     let index = addr_to_index(addr);
-    println!(
-        "converting addr {}={} for commit->{}",
-        addr,
-        hex::encode(b),
-        hex::encode(script_num.clone())
-    );
+    //    println!(
+    //        "converting addr {}={} for commit->{}",
+    //        addr,
+    //        hex::encode(b),
+    //        hex::encode(script_num.clone())
+    //    );
 
-    fast_tree.set_leaf(index, script_num);
+    let mem = to_mem_repr(b);
+
+    //fast_tree.set_leaf(index, script_num);
+    fast_tree.set_leaf(index, mem);
 }
 
 fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
