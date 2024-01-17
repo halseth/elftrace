@@ -22,6 +22,36 @@ fn to_script_num<T: Into<i64>>(w: T) -> Vec<u8> {
     script_num[..n].to_vec()
 }
 
+// TODO: used 4 byte array instead?
+fn to_mem_repr(w: u32) -> Vec<u8> {
+    let bits = 32;
+    //let w = u32::from_le_bytes(b);
+
+    let mut v: Vec<u8> = vec![];
+    for b in (0..bits).map(|n| (w >> n) & 1) {
+        if b == 0 {
+            v.push(0);
+        } else {
+            v.push(1);
+        }
+    }
+
+    v
+}
+
+fn from_mem_repr(v: Vec<u8>) -> u32 {
+    let bits = 32;
+    let mut w = 0u32;
+
+    for i in (0..bits) {
+        if v[i] == 1 {
+            w += 1u32 << i;
+        }
+    }
+
+    w
+}
+
 fn push_altstack(script: &String) -> String {
     format!(
         "{}
@@ -32,16 +62,202 @@ fn push_altstack(script: &String) -> String {
     )
 }
 
+// input: [a31 b31 ... a1 b1 a0 b0]
+// output: [c31 ... c1 c0]
+// where c=a+b
+fn add_u32_two_compl() -> String {
+    let mut s = "".to_string();
+
+    s += "
+    OP_0 #dummy carry
+    ";
+    for i in (0..32) {
+        s = format!(
+            "
+            {}
+
+            OP_ADD # add carry
+            OP_ADD # add next bit
+
+            OP_DUP
+            OP_2
+            OP_GREATERTHANOREQUAL
+            OP_IF
+              OP_2
+              OP_SUB
+              OP_1 # carry bit
+            OP_ELSE
+              OP_0 # carry bit
+            OP_ENDIF
+
+            OP_SWAP
+
+            # bit to alt stack
+            OP_TOALTSTACK
+
+            # carry bit on stack
+        ",
+            s
+        );
+    }
+
+    s = format!(
+        "
+            {}
+            OP_DROP # drop carry bit
+        ",
+        s
+    );
+
+    for i in (0..32) {
+        s = format!(
+            "
+            {}
+            OP_FROMALTSTACK
+        ",
+            s
+        );
+    }
+
+    s
+}
+
+//input : [c0 c1 .. c30 c31]
+//output: [c31|c30...c1|c0]
+fn cat_32_bits(copy_to_alt: bool) -> String {
+    let mut s = "".to_string();
+    if copy_to_alt {
+        s = format!(
+            "
+            {}
+        OP_DUP OP_TOALTSTACK
+        ",
+            s
+        );
+    }
+
+    s = format!(
+        "
+            {}
+        # if 0 bit, change it to 00 byte before cat
+        OP_DUP
+        OP_NOTIF
+          OP_DROP
+          00
+        OP_ENDIF
+        ",
+        s
+    );
+
+    for i in (0..31) {
+        s = format!(
+            "
+            {}
+        OP_SWAP
+        ",
+            s
+        );
+
+        if copy_to_alt {
+            s = format!(
+                "
+            {}
+        OP_DUP OP_TOALTSTACK
+        ",
+                s
+            );
+        }
+        s = format!(
+            "
+            {}
+
+        # if 0 bit, change it to 00 byte before cat
+        OP_DUP
+        OP_NOTIF
+          OP_DROP
+          00
+        OP_ENDIF
+
+        OP_CAT
+        ",
+            s
+        );
+    }
+
+    s
+}
+
 pub fn reg_addr(reg: usize) -> u32 {
     (SYSTEM.start() + reg * WORD_SIZE) as u32
 }
 
 fn witness_encode(data: Vec<u8>) -> String {
-    if data.len() == 0 {
+    // if data.len() != 4 {
+    //     panic!("not 4")
+    // }
+
+    let mut s: String = "".to_string();
+    for d in data.iter().rev() {
+        s += format!("{} ", witness_encode_bit(*d)).as_str();
+    }
+
+    s
+}
+
+fn push_bit(b: u8) -> String {
+    if b == 0 {
+        return "OP_0".to_string();
+    }
+
+    if b == 1 {
+        return "OP_1".to_string();
+    }
+
+    panic!("non-bit value");
+}
+
+fn zip_with_altstack(data: Vec<u8>) -> String {
+    let mut s: String = "".to_string();
+    for d in data.iter().rev() {
+        s = format!(
+            "
+            {}
+            {}
+            OP_FROMALTSTACK
+            ",
+            s,
+            push_bit(*d),
+        );
+    }
+
+    s
+}
+
+
+fn witness_encode_bit(b: u8) -> String {
+    if b == 0 {
         return "<>".to_string();
     }
 
-    hex::encode(data)
+    if b == 1 {
+        return "01".to_string();
+    }
+
+    panic!("non-bit value");
+}
+
+
+fn cat_encode(data: Vec<u8>) -> String {
+    // if data.len() != 4 {
+    //     panic!("not 4")
+    // }
+
+    let mut s: String = "".to_string();
+    for d in data {
+        s += format!("{:02x}", d).as_str();
+    }
+
+    s
 }
 
 fn addr_to_index(addr: usize) -> usize {
@@ -116,8 +332,8 @@ impl BitcoinInstructionProcessor {
     // output:
     // stack: [rem] <new root>
     fn increment_pc(&self, script: String) -> String {
-        let pc_start = to_script_num(self.insn_pc);
-        let pc_end = to_script_num(self.insn_pc + 4);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
 
         // Verify start PC and amend to pc+4,
         format!(
@@ -129,15 +345,15 @@ impl BitcoinInstructionProcessor {
         {}
         ",
             script,
-            hex::encode(pc_start.clone()),
-            hex::encode(pc_end.clone()),
+            hex::encode(pc_start),
+            hex::encode(pc_end),
             self.amend_register(REG_MAX, 1),
         )
     }
 
-    fn add_pc(&self, script: String, imm: u32) -> String {
-        let pc_start = to_script_num(self.insn_pc);
-        let pc_end = to_script_num(self.insn_pc + imm);
+    fn add_pc(&self, script: String, imm: i32) -> String {
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr((self.insn_pc as i32 + imm) as u32);
 
         // Verify start PC and amend to pc+imm,
         format!(
@@ -176,11 +392,12 @@ impl BitcoinInstructionProcessor {
             "{}
        # check input commitment
        OP_FROMALTSTACK
+        OP_SWAP
         OP_CAT
         OP_SHA256
         OP_0 # index
         OP_0 # nums key
-        81 # current taptree
+        OP_1NEGATE # current taptree
         OP_1 # flags, check input
         OP_CHECKCONTRACTVERIFY
          OP_1
@@ -204,7 +421,8 @@ impl BitcoinInstructionProcessor {
             script = format!(
                 "{}
             # pop value and set zero instead,
-            OP_DROP OP_0
+            OP_DROP
+            0000000000000000000000000000000000000000000000000000000000000000
         ",
                 script,
             );
@@ -538,14 +756,14 @@ impl WitnessGenerator for WitnessAddi {
 
         let pc_addr = reg_addr(REG_MAX);
 
-        let pc_start = to_script_num(self.insn_pc);
+        let pc_start = to_mem_repr(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
-        let pc_end = to_script_num(self.insn_pc + 4);
-        let imm = to_script_num(self.dec_insn.imm);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        let imm = to_mem_repr(self.dec_insn.imm as u32);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
@@ -569,19 +787,19 @@ impl WitnessGenerator for WitnessAddi {
             witness.push(hex::encode(p))
         }
 
-        let rs_val = read_scriptint(&rs1_val).unwrap();
+        let rs_val = from_mem_repr(rs1_val);
 
         // Value at rs1+imm will be memory address to store to.
         let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let rd_val = rs_val + (self.dec_insn.imm as i64);
-        let rd_mem = to_script_num(rd_val);
+        let rd_val = rs_val as i64 + (self.dec_insn.imm as i64);
+        let rd_mem = to_mem_repr(rd_val as u32);
         add_tag(rd_mem.clone(), "rd_val");
 
         let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -1425,27 +1643,19 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
-//        for b in pc_path {
-//            println!("bit: {}", b);
-//        }
 
-        let pc_start = to_script_num(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
-        let pc_end = to_script_num(self.insn_pc + 4);
-        let imm = to_script_num(dec_insn.imm);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        //let imm = dec_insn.imm.to_le_bytes().to_vec();
+
+        let imm = to_mem_repr(dec_insn.imm as u32);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
-
         let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
         let rd_incl = Self::merkle_inclusion(&rd_path);
@@ -1459,30 +1669,41 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // rs on stack, verify against start root on alt stack.
         script = format!(
             "{}
-        # rs on stack
-        OP_DUP OP_TOALTSTACK
-        # rs inclusion
+        # rs as [u1;32]= [a0 a1 ... a30 a31] on stack
+        # cat 32 bits
         {}
+
+        # check rs inclusion
+        {}
+
         ",
             script,
-            self.register_inclusion_script(dec_insn.rs1, 2),
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 33),
         );
 
         script = format!(
             "{}
-           # perform addition
-           {} #imm
-           OP_FROMALTSTACK
-           OP_ADD
 
-           # build root
+            # zip 32-bits of imm  with rs bits
+           {} #imm
+
+           # perform addition
+            {}
+
+            # cat rd 32 bits
+            {}
+
+           # build new root
            {}
 
     # current root on stack
     OP_TOALTSTACK
 ",
             script,
-            witness_encode(imm.clone()),
+            zip_with_altstack(imm.clone()),
+            add_u32_two_compl(),
+            cat_32_bits(false),
             self.amend_register(dec_insn.rd, 1),
         );
 
@@ -2307,7 +2528,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         //       }
 
         // Set new pc to pc + imm;
-        script = self.add_pc(script, dec_insn.imm as u32);
+        script = self.add_pc(script, dec_insn.imm);
         script = self.verify_commitment(script, root_pos);
 
         Script {
