@@ -1025,13 +1025,13 @@ impl WitnessGenerator for crate::processor::WitnessAuipc {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let res = self.insn_pc + (self.dec_insn.imm as u32);
-        let rd_val = to_script_num(res);
+        let res = self.insn_pc as i32 + self.dec_insn.imm;
+        let rd_val = to_mem_repr(res as u32);
 
         add_tag(rd_val.clone(), "rd_val");
 
         let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -1043,14 +1043,14 @@ impl WitnessGenerator for crate::processor::WitnessAuipc {
 
         let pc_addr = reg_addr(REG_MAX);
         let pc_index = addr_to_index(pc_addr as usize);
-        let pc_start = to_script_num(self.insn_pc);
+        let pc_start = to_mem_repr(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
 
-        let pc_end = to_script_num(self.insn_pc + 4);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
         pre_tree.set_leaf(pc_index, pc_end.clone());
         let end_root_str = hex::encode(pre_tree.commit());
         let post_root = hex::encode(end_root);
@@ -1927,9 +1927,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = to_script_num(self.insn_pc);
-        let pc_end = to_script_num(self.insn_pc + 4);
-        let imm = to_script_num(dec_insn.imm);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        let imm = to_mem_repr(dec_insn.imm as u32);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
@@ -1942,9 +1942,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // Since we know the PC and imm before executing this instruction, we can do the calculation here and hardcode the result in the script.
         //let res =self.insn_pc + (dec_insn.imm as u32) << 12;
         // NOTE: for some reason imm is already shifted, not entirely sure why.
-        let res = self.insn_pc + (dec_insn.imm as u32);
+        let res = self.insn_pc as i32 + dec_insn.imm;
 
-        let rd_val = to_script_num(res);
+        let rd_val = to_mem_repr(res as u32);
         //let rd_val = imm.clone();
 
         println!(
@@ -1961,6 +1961,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // Prove inclusion of new value
         script = format!(
             "{}
+
+                   # pre rd val on stack
                    {} # rd_val
 
                    # build root
@@ -1970,7 +1972,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             OP_TOALTSTACK
         ",
             script,
-            hex::encode(rd_val.clone()),
+            cat_encode(rd_val.clone()),
             self.amend_register(dec_insn.rd, 1),
         );
 
@@ -2518,6 +2520,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // Prove inclusion of new value
         script = format!(
             "{}
+
+                   # pre rd val on stack
                    {} # rd_val
 
                    # build root
