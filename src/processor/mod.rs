@@ -1473,13 +1473,13 @@ impl WitnessGenerator for crate::processor::WitnessJal {
         let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         let res = self.insn_pc + 4;
-        let rd_val = to_script_num(res);
+        let rd_val = to_mem_repr(res);
 
         add_tag(pre_rd_val.clone(), "pre_rd_val");
         add_tag(rd_val.clone(), "rd_val");
 
         let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -1491,8 +1491,8 @@ impl WitnessGenerator for crate::processor::WitnessJal {
 
         let pc_addr = reg_addr(REG_MAX);
         let pc_index = addr_to_index(pc_addr as usize);
-        let pc_start = to_script_num(self.insn_pc);
-        let pc_end = to_script_num(self.insn_pc + self.dec_insn.imm as u32);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + self.dec_insn.imm as u32);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
@@ -2484,9 +2484,14 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = to_script_num(self.insn_pc);
-        let pc_end = to_script_num(self.insn_pc + dec_insn.imm as u32);
-        let imm = to_script_num(dec_insn.imm);
+        println!(
+            "imm={:x} as int32={}, as u32={}",
+            dec_insn.imm, dec_insn.imm as i32, dec_insn.imm as u32
+        );
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr((self.insn_pc as i32 + dec_insn.imm) as u32);
+        let imm = to_mem_repr(dec_insn.imm as u32);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
@@ -2501,7 +2506,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // NOTE: for some reason imm is already shifted, not entirely sure why.
         let res = self.insn_pc + 4;
 
-        let rd_val = to_script_num(res);
+        let rd_val = to_mem_repr(res);
         //let rd_val = imm.clone();
 
         println!(
@@ -2531,7 +2536,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             OP_TOALTSTACK
         ",
             script,
-            hex::encode(rd_val.clone()),
+            cat_encode(rd_val.clone()),
             self.amend_register(dec_insn.rd, 1),
         );
         root_pos += 1;
