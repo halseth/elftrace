@@ -154,6 +154,21 @@ fn add_u32_two_compl() -> String {
     s
 }
 
+fn get_altstack(n: u32) -> String {
+    let mut s = "".to_string();
+    for i in (0..n) {
+        s = format!(
+            "
+            {}
+            OP_FROMALTSTACK
+        ",
+            s
+        );
+    }
+
+    s
+}
+
 //input : [c0 c1 .. c30 c31]
 //output: [c31|c30...c1|c0]
 fn cat_32_bits(copy_to_alt: bool) -> String {
