@@ -62,6 +62,38 @@ fn push_altstack(script: &String) -> String {
     )
 }
 
+// input: altstack: 32le bits
+// output: scriptnum on stack
+fn bits_to_scriptnum(bits: u32) -> String {
+    let mut script = "".to_string();
+    script = format!(
+        "{}
+            OP_0
+            ",
+        script,
+    );
+
+    for b in (0..bits).rev() {
+        let n = 1u32 << b;
+        let script_num = to_script_num(n);
+        let mut num = hex::encode(script_num);
+        if n <= 16 {
+            num = format!("OP_{}", n);
+        }
+        script = format!(
+            "{}
+            OP_FROMALTSTACK
+                        OP_IF
+                        {} OP_ADD
+                        OP_ENDIF
+                    ",
+            script, num,
+        );
+    }
+
+    script
+}
+
 // input: [a31 b31 ... a1 b1 a0 b0]
 // output: [c31 ... c1 c0]
 // where c=a+b
