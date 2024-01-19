@@ -1055,7 +1055,7 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
             witness.push(hex::encode(p))
         }
 
-        let rs_val = read_scriptint(&rs1_val).unwrap();
+        let rs_val = from_mem_repr(rs1_val);
 
         let rd_addr = reg_addr(self.dec_insn.rd);
         let rd_index = addr_to_index(rd_addr as usize);
@@ -1063,11 +1063,11 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
         let rd_val = rs_val << self.dec_insn.shamt;
-        let rd_mem = to_script_num(rd_val);
+        let rd_mem = to_mem_repr(rd_val as u32);
         add_tag(rd_mem.clone(), "rd_val");
 
         let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
-        witness.push(format!("{}", witness_encode(pre_rd_val.clone())));
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
@@ -1079,7 +1079,7 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
 
         let pc_addr = reg_addr(REG_MAX);
         let pc_index = addr_to_index(pc_addr as usize);
-        let pc_start = to_script_num(self.insn_pc);
+        let pc_start = to_mem_repr(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         //        println!("proof that PC is {}:", hex::encode(pc_start));
@@ -1087,7 +1087,7 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
         //            println!("{}:", hex::encode(p));
         //        }
 
-        let pc_end = to_script_num(self.insn_pc + 4);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -1944,17 +1944,14 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
-//        for b in pc_path {
-//            println!("bit: {}", b);
-//        }
 
-        let pc_start = to_script_num(self.insn_pc);
+        let pc_start = to_mem_repr(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
             hex::encode(pc_start.clone())
         );
-        let pc_end = to_script_num(self.insn_pc + 4);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
@@ -1969,41 +1966,69 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let mut script = push_altstack(&self.str);
 
-        // rs on stack, verify against start root on alt stack.
+        // rs1 on stack, verify against start root on alt stack.
         script = format!(
             "{}
-        # rs on stack
-        OP_DUP OP_TOALTSTACK
-        # rs inclusion
-        {}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
 
-        OP_FROMALTSTACK
-        ",
+                # rs1 inclusion
+                {}
+                ",
             script,
-            self.register_inclusion_script(dec_insn.rs1, 2),
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32),
         );
 
-        // Shift the value by shamt positsion by doubling it.
+        // Shift the value by shamt positsion.
+        // first drop the shamt MSB bits.
         for i in (0..dec_insn.shamt) {
             script = format!(
                 "{}
-           # double value (==shift left)
-            OP_DUP OP_ADD
+                # drop MSB bit.
+                OP_FROMALTSTACK OP_DROP
 ",
                 script,
             );
         }
 
+        // Get all bits from altstack
         script = format!(
             "{}
-        # rd on stack
+                # get rest of rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                ",
+            script,
+            get_altstack(32-dec_insn.shamt),
+        );
+
+        // add LSB zeros.
+        for i in (0..dec_insn.shamt) {
+            script = format!(
+                "{}
+                OP_0
+",
+                script,
+            );
+        }
+
+        // build mem rep format
+        script = format!(
+            "{}
+        # rd=rs<<shamt  bits on stack
+        {}
+
+        # rd inclusion
         {}
 
         OP_TOALTSTACK
         ",
             script,
-            self.amend_register(dec_insn.rs1, 1),
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
         );
+
 
         // Increment pc
         script = self.increment_pc(script);
