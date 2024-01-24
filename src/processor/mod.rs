@@ -1757,30 +1757,31 @@ impl WitnessGenerator for crate::processor::WitnessJalr {
         add_tag(rd_val.clone(), "rd_val");
         let rd_proof = pre_tree.proof(rd_index, rd_val.clone()).unwrap();
 
-        witness.push(format!("{}", witness_encode(rd_val.clone())));
+        witness.push(format!("{}", cat_encode(rd_val.clone())));
         for p in rd_proof {
             witness.push(hex::encode(p))
         }
 
-        let pc_end = to_script_num(self.insn_pc + 4);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
         if self.dec_insn.rd != REG_ZERO {
             pre_tree.set_leaf(rd_index, pc_end.clone());
             pre_tree.commit();
         }
 
+        let rs_val = from_mem_repr(rs1_val);
+        let branch_pc = (rs_val as u32).wrapping_add(self.dec_insn.imm as u32);
+        println!("branch_pc={:x}", branch_pc);
+        let branch_val = to_mem_repr(branch_pc);
+        witness.push(format!("{}", witness_encode(branch_val.clone())));
+
         let pc_addr = reg_addr(REG_MAX);
         let pc_index = addr_to_index(pc_addr as usize);
-        let pc_start = to_script_num(self.insn_pc);
+        let pc_start = to_mem_repr(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
-
-        let rs_val = read_scriptint(&rs1_val).unwrap();
-        let branch_pc = (rs_val as u32).wrapping_add(self.dec_insn.imm as u32);
-        println!("branch_pc={:x}", branch_pc);
-        let branch_val = to_script_num(branch_pc);
 
         pre_tree.set_leaf(pc_index, branch_val.clone());
         pre_tree.commit();
@@ -2691,7 +2692,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_start = to_script_num(self.insn_pc);
+        let pc_start_mem = to_mem_repr(self.insn_pc);
         println!(
             "converting pc {} for script->{}",
             hex::encode((self.insn_pc).to_le_bytes()),
@@ -2699,7 +2701,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         );
 
         let mut pc_end = to_mem_repr(self.insn_pc + 4);
-        let imm = to_mem_repr(dec_insn.imm as u32);
+        let imm = to_script_num(dec_insn.imm);
 
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
@@ -2720,17 +2722,29 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
         let mut script = push_altstack(&self.str);
-
-        // rs1 on stack, verify against start root on alt stack.
         script = format!(
             "{}
-                # rs1 on stack
-                OP_DUP OP_TOALTSTACK
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
                 # rs1 inclusion
                 {}
                 ",
             script,
-            self.register_inclusion_script(dec_insn.rs1, 2),
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32),
+        );
+
+        // convert rs1 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of rs1, convert it to scriptnum
+            {}
+
+            OP_TOALTSTACK
+        ",
+            script,
+            bits_to_scriptnum(32),
         );
 
         // prev rd on stack
@@ -2753,20 +2767,51 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         script = format!(
             "{}
-            {} # pc
-            OP_FROMALTSTACK # current root
-            OP_FROMALTSTACK # rs1
-            OP_SWAP OP_TOALTSTACK
-            {} # offset
-            OP_ADD
+                # new pc in bit format on stack. Build mem repr format.
+                {}
 
-            # pc inclusion
-                   {}
+                # old pc
+                {}
+                OP_SWAP
+
+                # new pc inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            hex::encode(pc_start_mem.clone()),
+            self.amend_register(REG_MAX, 32+3),
+        );
+
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of new pc, convert it to scriptnum
+            {}
         ",
             script,
-            hex::encode(pc_start.clone()),
-            witness_encode(imm.clone()),
-            self.amend_register(REG_MAX, 1),
+            bits_to_scriptnum(32),
+        );
+
+        let mut imm_op = hex::encode(imm.clone());
+        if dec_insn.imm <= 16 && dec_insn.imm >= 0 {
+            imm_op = format!("OP_{}", dec_insn.imm);
+        }
+
+
+        script = format!(
+            "{}
+            # get rs1 from alt stack
+            OP_FROMALTSTACK
+            OP_FROMALTSTACK
+            OP_SWAP OP_TOALTSTACK
+
+            {} # offset
+            OP_ADD
+            OP_EQUALVERIFY
+        ",
+            script,
+            imm_op,
         );
 
         script = self.verify_commitment(script, 2);
