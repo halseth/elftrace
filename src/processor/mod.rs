@@ -3041,7 +3041,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script,
             cat_32_bits(true),
             hex::encode(pc_start_mem.clone()),
-            self.amend_register(REG_MAX, 32 + 3),
+            self.amend_register(REG_MAX, 32 + 1),
         );
 
         // TODO: do arithmetics on u32le isntead?
