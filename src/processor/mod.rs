@@ -240,6 +240,16 @@ pub fn reg_addr(reg: usize) -> u32 {
     (SYSTEM.start() + reg * WORD_SIZE) as u32
 }
 
+pub fn script_encode_const(c: i32) -> String {
+    let imm = to_script_num(c);
+    let mut imm_op = hex::encode(imm.clone());
+    if c <= 16 && c >= 0 {
+        imm_op = format!("OP_{}", c);
+    }
+
+    imm_op
+}
+
 fn witness_encode(data: Vec<u8>) -> String {
     // if data.len() != 4 {
     //     panic!("not 4")
@@ -2403,7 +2413,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                     ",
             script,
             hex::encode(offset.clone()),
-            hex::encode(imm.clone()),
+            script_encode_const(dec_insn.imm),
         );
         add_tag(offset.clone(), "address offset");
         add_tag(imm.clone(), "imm");
@@ -2568,7 +2578,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                     ",
             script,
             hex::encode(offset.clone()),
-            hex::encode(imm.clone()),
+            script_encode_const(dec_insn.imm),
         );
         add_tag(offset.clone(), "address offset");
         add_tag(imm.clone(), "imm");
@@ -2793,12 +2803,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             bits_to_scriptnum(32),
         );
 
-        let mut imm_op = hex::encode(imm.clone());
-        if dec_insn.imm <= 16 && dec_insn.imm >= 0 {
-            imm_op = format!("OP_{}", dec_insn.imm);
-        }
-
-
         script = format!(
             "{}
             # get rs1 from alt stack
@@ -2811,7 +2815,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             OP_EQUALVERIFY
         ",
             script,
-            imm_op,
+            script_encode_const(dec_insn.imm),
         );
 
         script = self.verify_commitment(script, 2);
