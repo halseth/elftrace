@@ -2,8 +2,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use bitcoin::script::{read_scriptint, write_scriptint};
 use crate::processor::BranchCondition::{BEQ, BGE, BNE};
+use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
 use risc0_zkvm_platform::WORD_SIZE;
@@ -171,8 +171,10 @@ fn get_altstack(n: u32) -> String {
     s
 }
 
-//input : [c0 c1 .. c30 c31]
-//output: [c31|c30...c1|c0]
+// input : [c31 c30 .. c1 c0]
+// output: [c0|c1...c30|c31]
+// altstack (if copy_to_alt): [c0... c30 c31]
+// note: c0 is LSB
 fn cat_32_bits(copy_to_alt: bool) -> String {
     let mut s = "".to_string();
     if copy_to_alt {
@@ -250,6 +252,7 @@ pub fn script_encode_const(c: i32) -> String {
     imm_op
 }
 
+// data is LSB encoded. this function ensures it ends up LSB top of stack
 fn witness_encode(data: Vec<u8>) -> String {
     // if data.len() != 4 {
     //     panic!("not 4")
@@ -275,6 +278,9 @@ fn push_bit(b: u8) -> String {
     panic!("non-bit value");
 }
 
+// input: alt: [a0 ... a30 a31]
+// data= {d0, d1... d30, d31}
+// output: stack: [d31 a31 d30 a30 ... d0 a0]
 fn zip_with_altstack(data: Vec<u8>) -> String {
     let mut s: String = "".to_string();
     for d in data.iter().rev() {
@@ -1890,7 +1896,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // rs on stack, verify against start root on alt stack.
         script = format!(
             "{}
-        # rs as [u1;32]= [a0 a1 ... a30 a31] on stack
+        # rs as [u1;32]= [a31 ... a1 a0] on stack
         # cat 32 bits
         {}
 
@@ -1906,7 +1912,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         script = format!(
             "{}
 
-            # zip 32-bits of imm  with rs bits
+            # rs on alt stack: [a0 ... a30 a31]
+            # zip 32-bits of imm with rs bits
            {} #imm
 
            # perform addition
@@ -2011,7 +2018,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
                 ",
             script,
-            get_altstack(32-dec_insn.shamt),
+            get_altstack(32 - dec_insn.shamt),
         );
 
         // add LSB zeros.
@@ -2039,7 +2046,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             cat_32_bits(false),
             self.amend_register(dec_insn.rd, 1),
         );
-
 
         // Increment pc
         script = self.increment_pc(script);
@@ -2790,7 +2796,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script,
             cat_32_bits(true),
             hex::encode(pc_start_mem.clone()),
-            self.amend_register(REG_MAX, 32+3),
+            self.amend_register(REG_MAX, 32 + 3),
         );
 
         // TODO: do arithmetics on u32le isntead?
