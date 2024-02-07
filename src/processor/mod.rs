@@ -248,6 +248,9 @@ pub fn script_encode_const(c: i32) -> String {
     if c <= 16 && c >= 0 {
         imm_op = format!("OP_{}", c);
     }
+    if c == -1 {
+        imm_op = format!("OP_1NEGATE");
+    }
 
     imm_op
 }
