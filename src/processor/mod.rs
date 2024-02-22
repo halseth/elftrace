@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crate::processor::BranchCondition::{BEQ, BGE, BNE};
+use crate::processor::BranchCondition::{BEQ, BGE, BLTU, BNE};
 use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
@@ -1361,14 +1361,17 @@ enum BranchCondition {
     BEQ,
     BGE,
     BNE,
+    BLTU,
 }
 
 impl fmt::Display for BranchCondition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            // TODO: should use signed/unsigned comparison
             BEQ => write!(f, "OP_EQUAL"),
             BGE => write!(f, "OP_GREATERTHANOREQUAL"),
             BNE => write!(f, "OP_EQUAL OP_NOT"),
+            BLTU => write!(f, "OP_LESSTHAN"),
         }
     }
 }
@@ -2763,7 +2766,18 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_bltu(&mut self, dec_insn: BType) -> Self::InstructionResult {
-        todo!()
+        let branch_cond = BLTU;
+        let (script, tags) = self.branch_condition(&dec_insn, &branch_cond);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessBranch {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                branch_cond: branch_cond,
+            }),
+            tags: tags,
+        }
     }
 
     fn process_bge(&mut self, dec_insn: BType) -> Self::InstructionResult {
