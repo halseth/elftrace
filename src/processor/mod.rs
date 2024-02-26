@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crate::processor::BranchCondition::{BEQ, BGE, BLTU, BNE};
+use crate::processor::BranchCondition::{BEQ, BGE, BLT, BLTU, BNE, BGEU};
 use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
@@ -211,6 +211,44 @@ fn add_u32_two_compl() -> String {
 
     s
 }
+
+// input: [a31 b31 ... a1 b1 a0 b0]
+// output: [c31 ... c1 c0]
+// where c=a op b
+fn bitwise_u32(op: &str) -> String {
+    let mut s = "".to_string();
+
+    s += " ";
+    for i in (0..32) {
+        s = format!(
+            "
+            {}
+
+            # perform bitwise op
+            {}
+
+            # bit to alt stack
+            OP_TOALTSTACK
+        ",
+            s,
+            op,
+        );
+    }
+
+
+    for i in (0..32) {
+        s = format!(
+            "
+            {}
+            OP_FROMALTSTACK
+        ",
+            s
+        );
+    }
+
+    s
+}
+
 
 fn get_altstack(n: u32) -> String {
     let mut s = "".to_string();
@@ -1204,6 +1242,110 @@ impl WitnessGenerator for WitnessAddi {
         (witness.into_iter().rev().collect(), tags)
     }
 }
+
+struct WitnessAndi {
+    insn_pc: u32,
+    dec_insn: IType,
+}
+
+impl WitnessGenerator for WitnessAndi {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        let imm = to_mem_repr(self.dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs_val = from_mem_repr(rs1_val);
+
+        // Value at rs1+imm will be memory address to store to.
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs_val  & (self.dec_insn.imm as u32);
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
 struct WitnessSlli {
     insn_pc: u32,
     dec_insn: ITypeShamt,
@@ -1431,8 +1573,10 @@ impl WitnessGenerator for crate::processor::WitnessAuipc {
 enum BranchCondition {
     BEQ,
     BGE,
+    BGEU,
     BNE,
     BLTU,
+    BLT,
 }
 
 impl fmt::Display for BranchCondition {
@@ -1441,8 +1585,10 @@ impl fmt::Display for BranchCondition {
             // TODO: should use signed/unsigned comparison
             BEQ => write!(f, "OP_EQUAL"),
             BGE => write!(f, "OP_GREATERTHANOREQUAL"),
+            BGEU => write!(f, "OP_GREATERTHANOREQUAL"),
             BNE => write!(f, "OP_EQUAL OP_NOT"),
             BLTU => write!(f, "OP_LESSTHAN"),
+            BLT => write!(f, "OP_LESSTHAN"),
         }
     }
 }
@@ -1509,16 +1655,19 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         let rs2_num = from_mem_repr(rs2_val);
         let rs1_num = from_mem_repr(rs1_val);
 
-        let mut pc_end = to_mem_repr(self.insn_pc + 4);
         let branch_pc = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
         println!("branch_pc={:x}", branch_pc);
         let branch_val = to_mem_repr(branch_pc);
 
-        if self.branch_cond == BGE && rs1_num >= rs2_num {
-            pc_end = branch_val.clone();
-        } else if self.branch_cond == BEQ && rs1_num == rs2_num {
-            pc_end = branch_val.clone();
-        }
+        let pc_end = match self.branch_cond {
+            BGE if rs1_num >= rs2_num => branch_val.clone(),
+            BGEU if rs1_num >= rs2_num => branch_val.clone(),
+            BEQ if rs1_num == rs2_num => branch_val.clone(),
+            BNE if rs1_num != rs2_num => branch_val.clone(),
+            BLTU if rs1_num < rs2_num => branch_val.clone(),
+            BLT if rs1_num < rs2_num => branch_val.clone(),
+            _ => to_mem_repr(self.insn_pc + 4),
+        };
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -2885,8 +3034,93 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_andi(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        todo!()
-    }
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        //let imm = dec_insn.imm.to_le_bytes().to_vec();
+
+        let imm = to_mem_repr(dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 33),
+        );
+
+        script = format!(
+            "{}
+
+            # rs on alt stack: [a0 ... a30 a31]
+            # zip 32-bits of imm with rs bits
+           {} #imm
+
+           # perform bitwise and
+            {}
+
+            # cat rd 32 bits
+            {}
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            zip_with_altstack(imm.clone()),
+            bitwise_u32("OP_BOOLAND"),
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessAndi {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
+
+        }
 
     fn process_lui(&mut self, dec_insn: UType) -> Self::InstructionResult {
         let mut tags = HashMap::new();
@@ -3069,7 +3303,19 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_blt(&mut self, dec_insn: BType) -> Self::InstructionResult {
-        todo!()
+        let branch_cond = BLT;
+        let (script, tags) = self.branch_condition(&dec_insn, &branch_cond);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessBranch {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                branch_cond: branch_cond,
+            }),
+            tags: tags,
+        }
+
     }
 
     fn process_bltu(&mut self, dec_insn: BType) -> Self::InstructionResult {
@@ -3104,7 +3350,20 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_bgeu(&mut self, dec_insn: BType) -> Self::InstructionResult {
-        todo!()
+        let branch_cond = BGEU;
+        let (script, tags) = self.branch_condition(&dec_insn, &branch_cond);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessBranch {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                branch_cond: branch_cond,
+            }),
+
+            tags: tags,
+        }
+
     }
 
     fn process_lb(&mut self, dec_insn: IType) -> Self::InstructionResult {
