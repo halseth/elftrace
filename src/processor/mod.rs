@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crate::processor::BranchCondition::{BEQ, BGE, BLTU, BNE};
+use crate::processor::BranchCondition::{BEQ, BGE, BLT, BLTU, BNE, BGEU};
 use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
@@ -1573,8 +1573,10 @@ impl WitnessGenerator for crate::processor::WitnessAuipc {
 enum BranchCondition {
     BEQ,
     BGE,
+    BGEU,
     BNE,
     BLTU,
+    BLT,
 }
 
 impl fmt::Display for BranchCondition {
@@ -1583,8 +1585,10 @@ impl fmt::Display for BranchCondition {
             // TODO: should use signed/unsigned comparison
             BEQ => write!(f, "OP_EQUAL"),
             BGE => write!(f, "OP_GREATERTHANOREQUAL"),
+            BGEU => write!(f, "OP_GREATERTHANOREQUAL"),
             BNE => write!(f, "OP_EQUAL OP_NOT"),
             BLTU => write!(f, "OP_LESSTHAN"),
+            BLT => write!(f, "OP_LESSTHAN"),
         }
     }
 }
@@ -1651,16 +1655,19 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         let rs2_num = from_mem_repr(rs2_val);
         let rs1_num = from_mem_repr(rs1_val);
 
-        let mut pc_end = to_mem_repr(self.insn_pc + 4);
         let branch_pc = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
         println!("branch_pc={:x}", branch_pc);
         let branch_val = to_mem_repr(branch_pc);
 
-        if self.branch_cond == BGE && rs1_num >= rs2_num {
-            pc_end = branch_val.clone();
-        } else if self.branch_cond == BEQ && rs1_num == rs2_num {
-            pc_end = branch_val.clone();
-        }
+        let pc_end = match self.branch_cond {
+            BGE if rs1_num >= rs2_num => branch_val.clone(),
+            BGEU if rs1_num >= rs2_num => branch_val.clone(),
+            BEQ if rs1_num == rs2_num => branch_val.clone(),
+            BNE if rs1_num != rs2_num => branch_val.clone(),
+            BLTU if rs1_num < rs2_num => branch_val.clone(),
+            BLT if rs1_num < rs2_num => branch_val.clone(),
+            _ => to_mem_repr(self.insn_pc + 4),
+        };
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -3296,7 +3303,19 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_blt(&mut self, dec_insn: BType) -> Self::InstructionResult {
-        todo!()
+        let branch_cond = BLT;
+        let (script, tags) = self.branch_condition(&dec_insn, &branch_cond);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessBranch {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                branch_cond: branch_cond,
+            }),
+            tags: tags,
+        }
+
     }
 
     fn process_bltu(&mut self, dec_insn: BType) -> Self::InstructionResult {
@@ -3331,7 +3350,20 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_bgeu(&mut self, dec_insn: BType) -> Self::InstructionResult {
-        todo!()
+        let branch_cond = BGEU;
+        let (script, tags) = self.branch_condition(&dec_insn, &branch_cond);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessBranch {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                branch_cond: branch_cond,
+            }),
+
+            tags: tags,
+        }
+
     }
 
     fn process_lb(&mut self, dec_insn: IType) -> Self::InstructionResult {
