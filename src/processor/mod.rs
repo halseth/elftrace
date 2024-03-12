@@ -2367,7 +2367,8 @@ impl WitnessGenerator for crate::processor::WitnessJal {
         let pc_addr = reg_addr(REG_MAX);
         let pc_index = addr_to_index(pc_addr as usize);
         let pc_start = to_mem_repr(self.insn_pc);
-        let pc_end = to_mem_repr(self.insn_pc + self.dec_insn.imm as u32);
+        let pc_u32 = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
+        let pc_end = to_mem_repr(pc_u32);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
