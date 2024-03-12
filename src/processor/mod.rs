@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crate::processor::BranchCondition::{BEQ, BGE, BLT, BLTU, BNE, BGEU};
+use crate::processor::BranchCondition::{BEQ, BGE, BGEU, BLT, BLTU, BNE};
 use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
@@ -124,7 +124,6 @@ fn twos_compl_u32() -> String {
         s,
     );
 
-
     for i in (1..32) {
         s = format!(
             "
@@ -136,7 +135,6 @@ fn twos_compl_u32() -> String {
         );
     }
 
-
     s = format!(
         "
             {}
@@ -144,10 +142,9 @@ fn twos_compl_u32() -> String {
             {}
         ",
         s,
-            zip_altstack(32),
-            add_u32_two_compl(),
+        zip_altstack(32),
+        add_u32_two_compl(),
     );
-
 
     s
 }
@@ -230,11 +227,9 @@ fn bitwise_u32(op: &str) -> String {
             # bit to alt stack
             OP_TOALTSTACK
         ",
-            s,
-            op,
+            s, op,
         );
     }
-
 
     for i in (0..32) {
         s = format!(
@@ -248,7 +243,6 @@ fn bitwise_u32(op: &str) -> String {
 
     s
 }
-
 
 fn get_altstack(n: u32) -> String {
     let mut s = "".to_string();
@@ -1307,7 +1301,7 @@ impl WitnessGenerator for WitnessAndi {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let rd_val = rs_val  & (self.dec_insn.imm as u32);
+        let rd_val = rs_val & (self.dec_insn.imm as u32);
         let rd_mem = to_mem_repr(rd_val as u32);
         add_tag(rd_mem.clone(), "rd_val");
 
@@ -2161,6 +2155,7 @@ impl WitnessGenerator for crate::processor::WitnessSw {
         (witness.into_iter().rev().collect(), tags)
     }
 }
+
 struct WitnessJal {
     insn_pc: u32,
     dec_insn: JType,
@@ -2424,12 +2419,12 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
     }
 }
 
-struct WitnessSub{
+struct WitnessSub {
     insn_pc: u32,
     dec_insn: RType,
 }
 
-impl WitnessGenerator for crate::processor::WitnessSub{
+impl WitnessGenerator for crate::processor::WitnessSub {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
@@ -2497,7 +2492,6 @@ impl WitnessGenerator for crate::processor::WitnessSub{
         let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
-
 
         let rd_val = rs1_val.wrapping_sub(rs2_val);
         println!("rd={} = rs1={} - rs2i={}", rd_val, rs1_val, rs2_val);
@@ -2736,7 +2730,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             push_n_altstack(32),
         );
 
-
         // rs1 and -rs2 as bits on alt stack. Zip them.
         script = format!(
             "{}
@@ -2769,7 +2762,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         Script {
             script,
-            witness_gen: Box::new(WitnessSub{
+            witness_gen: Box::new(WitnessSub {
                 insn_pc: self.insn_pc,
                 dec_insn: dec_insn,
             }),
@@ -3119,8 +3112,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             }),
             tags,
         }
-
-        }
+    }
 
     fn process_lui(&mut self, dec_insn: UType) -> Self::InstructionResult {
         let mut tags = HashMap::new();
@@ -3315,7 +3307,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             }),
             tags: tags,
         }
-
     }
 
     fn process_bltu(&mut self, dec_insn: BType) -> Self::InstructionResult {
@@ -3363,7 +3354,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
             tags: tags,
         }
-
     }
 
     fn process_lb(&mut self, dec_insn: IType) -> Self::InstructionResult {
@@ -3414,7 +3404,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         // 4. Use the bits from the previous merkle proof to calculate the meory index
         // 5. check that the memory index matches rs+imm
 
-        // rs2 on stack, verify against root on alt stack.
+        // rs1 on stack, verify against root on alt stack.
         script = format!(
             "{}
                 # rs1 in bit format on stack. Build mem repr format.
