@@ -1,7 +1,8 @@
 use bitcoin::script::{read_scriptint, write_scriptint};
 use fast_merkle::Tree;
+use risc0_binfmt::{MemoryImage, Program};
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
-use risc0_zkvm::{ExecutorEnv, ExecutorImpl, MemoryImage, Program, TraceEvent};
+use risc0_zkvm::{ExecutorEnv, ExecutorImpl, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
 use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_MAX};
@@ -53,7 +54,7 @@ fn main() {
 
     // Recreated executor starting memory.
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
-    let img = exec.memory();
+    let img = exec.memory().unwrap();
     println!("got starting memory: 0x{:x}", img.pc);
 
     let mem_len = guest_mem_len();
@@ -218,8 +219,8 @@ fn main() {
             TraceEvent::RegisterSet { idx, value } => {
                 set_register(&mut mem_tree, *idx, *value);
             }
-            TraceEvent::MemorySet { addr, value } => {
-                set_addr(&mut mem_tree, (*addr) as usize, *value);
+            TraceEvent::MemorySet { addr, region } => {
+                set_addr(&mut mem_tree, (*addr) as usize, region.clone());
             }
         }
     }
@@ -260,11 +261,38 @@ fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
     let sys_addr = SYSTEM.start();
     let addr = sys_addr + (reg * WORD_SIZE);
 
-    set_addr(fast_tree, addr, val);
+    set_addr(fast_tree, addr, val.to_le_bytes().into());
 }
 
-fn set_addr(fast_tree: &mut Tree, addr: usize, val: u32) {
-    let b = val.to_le_bytes();
+fn addr_word(fast_tree: &mut Tree, addr: usize, val: Vec<u8>) -> [u8; 4] {
+    let (index, offset) = addr_to_index(addr);
+    let n = val.len();
+    if !(n == 1 || n == WORD_SIZE / 2 || n == WORD_SIZE) {
+        panic!("invalid word length");
+    }
+    if offset + n > WORD_SIZE {
+        panic!("unaligned write")
+    }
+
+    if n == WORD_SIZE && offset == 0 {
+        return val.try_into().unwrap();
+    }
+
+    // Otherwise get the original data.
+    let word = fast_tree.get_leaf(index);
+    let mut le = from_mem_repr(word);
+
+    for (i, b) in val.iter().enumerate() {
+        le[i + offset] = *b
+    }
+
+    le
+}
+
+fn set_addr(fast_tree: &mut Tree, addr: usize, val: Vec<u8>) {
+    let b = addr_word(fast_tree, addr, val);
+    //let b = val.to_le_bytes();
+    let val = u32::from_le_bytes(b);
     let mem = to_mem_repr(b);
     println!(
         "memory addr={:x}  set to {:08x} (le={}) mem={}",
@@ -283,6 +311,8 @@ fn load_addr(img: &MemoryImage, addr: usize) -> [u8; 4] {
     b
 }
 
+// mem repr: [a0 a1 ... a31]
+// where a0 is LSB
 fn to_mem_repr(b: [u8; 4]) -> Vec<u8> {
     let bits = 32;
     let w = u32::from_le_bytes(b);
@@ -299,6 +329,24 @@ fn to_mem_repr(b: [u8; 4]) -> Vec<u8> {
     v
 }
 
+fn from_mem_repr(mem: Vec<u8>) -> [u8; 4] {
+    if mem.len() != 32 {
+        panic!("uneexpected word len");
+    }
+
+    let bits = 32;
+
+    let mut val = 0u32;
+    for i in (0..bits) {
+        let n = 1 << i;
+        if mem[i] == 1 {
+            val += n
+        }
+    }
+
+    val.to_le_bytes()
+}
+
 fn to_script_num(b: [u8; 4]) -> Vec<u8> {
     let w = u32::from_le_bytes(b);
 
@@ -310,7 +358,7 @@ fn to_script_num(b: [u8; 4]) -> Vec<u8> {
 fn set_commit(fast_tree: &mut Tree, addr: usize, b: [u8; 4]) {
     //println!("setting addr {:x}", addr);
     // let script_num = to_script_num(b.clone());
-    let index = addr_to_index(addr);
+    let (index, _) = addr_to_index(addr);
     //    println!(
     //        "converting addr {}={} for commit->{}",
     //        addr,
@@ -353,7 +401,10 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
     return root;
 }
 
-fn addr_to_index(addr: usize) -> usize {
-    (addr - GUEST_MIN_MEM) / WORD_SIZE
+// returns (index, word offset)
+fn addr_to_index(addr: usize) -> (usize, usize) {
+    (
+        (addr - GUEST_MIN_MEM) / WORD_SIZE,
+        (addr - GUEST_MIN_MEM) % WORD_SIZE,
+    )
 }
-
