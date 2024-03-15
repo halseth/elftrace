@@ -2097,14 +2097,6 @@ impl WitnessGenerator for crate::processor::WitnessSb {
 
         // Reveal old value of memory location in witness.
         let pre_mem_val = pre_tree.get_leaf(sw_index);
-        println!(
-            "prememval={}, new mem val={} sw_addr={}, sw_index={}",
-            hex::encode(pre_mem_val.clone()),
-            hex::encode(rs2_val.clone()),
-            sw_addr,
-            sw_index,
-        );
-
         witness.push(format!("{}", witness_encode(pre_mem_val.clone())));
 
         let byte_offset = byte_offset(sw_addr as usize);
@@ -2130,15 +2122,19 @@ impl WitnessGenerator for crate::processor::WitnessSb {
             witness.push(hex::encode(p))
         }
 
-        let mut masked_val = vec![];
-        for (i, x) in pre_mem_val.iter().enumerate() {
-            if i >= byte_offset * 8 && i < byte_offset * 8 {
-                masked_val.push(rs2_val[i % 8].clone());
-                continue;
-            }
-
-            masked_val.push(*x);
+        let mut masked_val = pre_mem_val.clone();
+        for i in byte_offset * 8..(byte_offset + 1) * 8 {
+            masked_val[i] = rs2_val[i % 8];
         }
+
+        println!(
+            "pre_mem_val={}, masked_mem_val={} byte_offset={}, sw_addr={}, sw_index={}",
+            hex::encode(pre_mem_val.clone()),
+            hex::encode(masked_val.clone()),
+            byte_offset,
+            sw_addr,
+            sw_index,
+        );
 
         pre_tree.set_leaf(sw_index, masked_val.clone());
         pre_tree.commit();
