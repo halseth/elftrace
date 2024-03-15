@@ -1921,14 +1921,10 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
 
         // Reveal old value of memory location in witness.
         let mem_val = pre_tree.get_leaf(lw_index);
-        let mut masked_val = vec![];
-        for (i, x) in mem_val.iter().enumerate() {
-            if i < 8 {
-                masked_val.push(*x);
-                continue;
-            }
-
-            masked_val.push(0);
+        let byte_offset = byte_offset(lw_addr as usize);
+        let mut masked_val = vec![0u8; 32];
+        for i in 0..8 {
+            masked_val[i] = mem_val[byte_offset * 8 + i];
         }
 
         println!(
@@ -1951,6 +1947,17 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
             }
             let p = sw_proof[i];
             witness.push(hex::encode(p))
+        }
+
+        // byte offset
+        if byte_offset == 0 {
+            witness.push(format!("<>"));
+        } else if byte_offset == 1 {
+            witness.push(format!("01"));
+        } else if byte_offset == 2 {
+            witness.push(format!("02"));
+        } else if byte_offset == 3 {
+            witness.push(format!("03"));
         }
 
         let rd_proof = pre_tree.proof(rd_index, rd_val.clone()).unwrap();
@@ -4050,13 +4057,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         script = format!(
             "{}
                     # mem val on stack, verify merkle proof for memory location.
-                    #OP_DUP OP_TOALTSTACK
-
                     # inclusion at imm+rs1
                     {}
                 ",
             script,
-            self.verify_path_inclusion(bits, 2 + bits+32),
+            self.verify_path_inclusion(bits, 2 + bits + 32),
         );
 
         // TODO: do arithmetics on u32le isntead?
@@ -4065,6 +4070,12 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                 # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
                 #check that it matches.
                 {}
+
+                # push copy byte offset to altstack
+                OP_SWAP
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
         ",
             script,
             bits_to_scriptnum(bits),
@@ -4084,6 +4095,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
                         #subtract imm
                         {} OP_SUB
+
+                        # add byte offset
+                        OP_ADD
                     ",
             script,
             hex::encode(offset.clone()),
@@ -4093,17 +4107,16 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(offset.clone(), "address offset");
         add_tag(imm.clone(), "imm");
 
-
         // Get rs1 script num from alt stack
         script = format!(
             "{}
                     {}
                 ",
             script,
-            get_altstack(32+1),
+            get_altstack(32 + 2),
         );
 
-        for i in 0..32 {
+        for i in 0..33 {
             script = format!(
                 "{}
                 OP_SWAP
@@ -4121,36 +4134,55 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script,
         );
 
+        // alt stack: [<mem val bits>, byte_offset]
+        script = format!(
+            "{}
+                OP_FROMALTSTACK
+                ",
+            script,
+        );
 
-        // Drop the 32-8 first bites of the memory value
-        for i in 0..24 {
+        // Cat each byte of the memory value
+        for i in 0..4 {
             script = format!(
                 "{}
-                OP_FROMALTSTACK
+                {}
+
+                # build mem rep format of byte
+                {}
+
+                ",
+                script,
+                get_altstack(8),
+                cat_n_bits(8, false),
+            );
+        }
+
+        // stack: [byte_offset byte3 byte2 byte1 byte0]
+
+        // get the byte to keep
+        script = format!(
+            "{}
+                OP_4
+                OP_ROLL
+                OP_PICK
+                OP_TOALTSTACK
                 OP_DROP
-                OP_0
+                OP_DROP
+                OP_DROP
+                OP_DROP
                 ",
-                script,
-            );
-        }
-
-        // get the LSB byte to keep
-        for i in 0..8 {
-            script = format!(
-                "{}
-                OP_FROMALTSTACK
-                ",
-                script,
-            );
-        }
+            script,
+        );
 
         script = format!(
             "{}
-                # build mem repr format
-                {}
+                # build mem repr format of final byte
+                OP_FROMALTSTACK
+                000000000000000000000000000000000000000000000000
+                OP_CAT
                 ",
             script,
-            cat_32_bits(false),
         );
 
         // Build new root from rd
