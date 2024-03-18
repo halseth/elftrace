@@ -3224,7 +3224,7 @@ impl WitnessGenerator for crate::processor::WitnessOr {
         let rs1_val = from_mem_repr(rs1_val);
         let rs2_val = from_mem_repr(rs2_val);
 
-        // rd <- (rs1)^(rs2)
+        // rd <- (rs1)|(rs2)
         let rd_index = addr_to_index(rd_addr as usize);
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
@@ -3726,7 +3726,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         Script {
             script,
-            witness_gen: Box::new(WitnessXor {
+            witness_gen: Box::new(WitnessOr {
                 insn_pc: self.insn_pc,
                 dec_insn: dec_insn,
             }),
