@@ -2208,6 +2208,11 @@ impl WitnessGenerator for crate::processor::WitnessLh {
             masked_val[i] = mem_val[byte_offset * 8 + i];
         }
 
+        // sign extend.
+        for i in 16..32 {
+            masked_val[i] = masked_val[15];
+        }
+
         println!(
             "mem val={} lw_addr={}, lw_index={}, masked_val={}",
             hex::encode(mem_val.clone()),
