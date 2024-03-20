@@ -1667,7 +1667,7 @@ impl WitnessGenerator for crate::processor::WitnessSll {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let rd_val = rs1_val << rs2_val;
+        let rd_val = rs1_val.wrapping_shl(rs2_val);
         println!("rd={} = rs1={} << rs2i={}", rd_val, rs1_val, rs2_val);
         let rd_mem = to_mem_repr(rd_val);
         add_tag(rd_mem.clone(), "rd_val");
