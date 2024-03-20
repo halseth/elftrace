@@ -2195,16 +2195,17 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         let rs1_num = from_mem_repr(rs1_val);
 
         let branch_pc = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
-        println!("branch_pc={:x}", branch_pc);
+        println!("rs1={:x} ({}) rs2={:x} ({}) branch_pc={:x}", rs1_num, rs1_num as i32, rs2_num,
+                 rs2_num as i32, branch_pc);
         let branch_val = to_mem_repr(branch_pc);
 
         let pc_end = match self.branch_cond {
-            BGE if rs1_num >= rs2_num => branch_val.clone(),
+            BGE if (rs1_num as i32) >= (rs2_num as i32) => branch_val.clone(),
             BGEU if rs1_num >= rs2_num => branch_val.clone(),
             BEQ if rs1_num == rs2_num => branch_val.clone(),
             BNE if rs1_num != rs2_num => branch_val.clone(),
             BLTU if rs1_num < rs2_num => branch_val.clone(),
-            BLT if rs1_num < rs2_num => branch_val.clone(),
+            BLT if (rs1_num as i32) < (rs2_num as i32) => branch_val.clone(),
             _ => to_mem_repr(self.insn_pc + 4),
         };
 
