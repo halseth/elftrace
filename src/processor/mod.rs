@@ -3187,8 +3187,10 @@ impl WitnessGenerator for crate::processor::WitnessSh {
         }
 
         let mut masked_val = pre_mem_val.clone();
+        let mut j = 0;
         for i in byte_offset * 8..(byte_offset + 2) * 8 {
-            masked_val[i] = rs2_val[i % 8];
+            masked_val[i] = rs2_val[j];
+            j += 1;
         }
 
         println!(
