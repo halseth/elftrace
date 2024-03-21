@@ -3721,7 +3721,8 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let rd_val = rs1_val + rs2_val;
+        //let rd_val = rs1_val + rs2_val;
+        let rd_val = rs1_val.wrapping_add(rs2_val);
         let rd_mem = to_mem_repr(rd_val as u32);
         add_tag(rd_mem.clone(), "rd_val");
 
