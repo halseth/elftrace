@@ -159,9 +159,9 @@ fn main() {
                     w_tags.extend(desc.tags.clone().into_iter());
 
                     let pc_str = format!("{:05x}", pcc);
-                    let mut witness_file =
-                        File::create(format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str))
-                            .unwrap();
+                    let witness_file_name =
+                        format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
+                    let mut witness_file = File::create(witness_file_name.clone()).unwrap();
                     write!(witness_file, "{}", witness.join("\n")).unwrap();
 
                     let tags_file =
@@ -198,6 +198,7 @@ fn main() {
 
                     // Start and  end root alwyas first in the witness.
                     //let witness = vec![];
+                    println!("wrote {}", witness_file_name);
                 }
 
                 let r1 = hex::encode(script_tree.root());
