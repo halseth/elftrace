@@ -244,6 +244,48 @@ fn bitwise_u32(op: &str) -> String {
     s
 }
 
+// input: [a31 b31 ... a1 b1 a0 b0]
+// output: [c31 ... c1 c0]
+// where c=a ^ b
+fn bitwise_xor_u32() -> String {
+    let mut s = "".to_string();
+
+    s += " ";
+    for i in (0..32) {
+        s = format!(
+            "
+            {}
+
+            # perform bitwise XOR
+            OP_ADD
+            OP_1
+            OP_EQUAL
+            OP_IF
+            OP_1
+            OP_ELSE
+            OP_0
+            OP_ENDIF
+
+            # bit to alt stack
+            OP_TOALTSTACK
+        ",
+            s,
+        );
+    }
+
+    for i in (0..32) {
+        s = format!(
+            "
+            {}
+            OP_FROMALTSTACK
+        ",
+            s
+        );
+    }
+
+    s
+}
+
 fn get_altstack(n: u32) -> String {
     let mut s = "".to_string();
     for i in (0..n) {
@@ -1340,6 +1382,448 @@ impl WitnessGenerator for WitnessAndi {
         (witness.into_iter().rev().collect(), tags)
     }
 }
+
+struct WitnessXori {
+    insn_pc: u32,
+    dec_insn: IType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessXori {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        let imm = to_mem_repr(self.dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs_val = from_mem_repr(rs1_val);
+
+        // Value at rs1+imm will be memory address to store to.
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs_val ^ (self.dec_insn.imm as u32);
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessSltui {
+    insn_pc: u32,
+    dec_insn: IType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessSltui {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        let imm = to_mem_repr(self.dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs_val = from_mem_repr(rs1_val);
+
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_mem = match rs_val < self.dec_insn.imm as u32 {
+            true => to_mem_repr(1),
+            _ => to_mem_repr(0),
+        };
+
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessSrl {
+    insn_pc: u32,
+    dec_insn: RType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessSrl {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs1_val = from_mem_repr(rs1_val);
+        let rs2_val = from_mem_repr(rs2_val);
+
+        // rd <- (rs1)-(rs2)
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        //let rd_val = rs1_val >> rs2_val;
+        let rd_val = rs1_val.wrapping_shr(rs2_val);
+        println!("rd={} = rs1={} >> rs2i={}", rd_val, rs1_val, rs2_val);
+        let rd_mem = to_mem_repr(rd_val);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessSll {
+    insn_pc: u32,
+    dec_insn: RType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessSll {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs1_val = from_mem_repr(rs1_val);
+        let rs2_val = from_mem_repr(rs2_val);
+
+        // rd <- (rs1)-(rs2)
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs1_val.wrapping_shl(rs2_val);
+        println!("rd={} = rs1={} << rs2i={}", rd_val, rs1_val, rs2_val);
+        let rd_mem = to_mem_repr(rd_val);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
 struct WitnessSlli {
     insn_pc: u32,
     dec_insn: ITypeShamt,
@@ -1427,6 +1911,183 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
         (witness.into_iter().rev().collect(), tags)
     }
 }
+
+struct WitnessSrli {
+    insn_pc: u32,
+    dec_insn: ITypeShamt,
+}
+
+impl WitnessGenerator for crate::processor::WitnessSrli {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        add_tag(end_root.to_vec(), "end_root");
+
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs_val = from_mem_repr(rs1_val);
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs_val >> self.dec_insn.shamt;
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_index = addr_to_index(pc_addr as usize);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessSrai {
+    insn_pc: u32,
+    dec_insn: ITypeShamt,
+}
+
+impl WitnessGenerator for crate::processor::WitnessSrai {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        add_tag(end_root.to_vec(), "end_root");
+
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs_val = from_mem_repr(rs1_val);
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = (rs_val as i32) >> self.dec_insn.shamt;
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_index = addr_to_index(pc_addr as usize);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
 struct WitnessLui {
     insn_pc: u32,
     dec_insn: UType,
@@ -1650,16 +2311,19 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         let rs1_num = from_mem_repr(rs1_val);
 
         let branch_pc = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
-        println!("branch_pc={:x}", branch_pc);
+        println!(
+            "rs1={:x} ({}) rs2={:x} ({}) branch_pc={:x}",
+            rs1_num, rs1_num as i32, rs2_num, rs2_num as i32, branch_pc
+        );
         let branch_val = to_mem_repr(branch_pc);
 
         let pc_end = match self.branch_cond {
-            BGE if rs1_num >= rs2_num => branch_val.clone(),
+            BGE if (rs1_num as i32) >= (rs2_num as i32) => branch_val.clone(),
             BGEU if rs1_num >= rs2_num => branch_val.clone(),
             BEQ if rs1_num == rs2_num => branch_val.clone(),
             BNE if rs1_num != rs2_num => branch_val.clone(),
             BLTU if rs1_num < rs2_num => branch_val.clone(),
-            BLT if rs1_num < rs2_num => branch_val.clone(),
+            BLT if (rs1_num as i32) < (rs2_num as i32) => branch_val.clone(),
             _ => to_mem_repr(self.insn_pc + 4),
         };
 
@@ -1671,6 +2335,348 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         if end_root_str != post_root {
             panic!("end root mismatch: {} vs {}", end_root_str, post_root);
         }
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessLh {
+    insn_pc: u32,
+    dec_insn: IType,
+    start_addr: u32,
+    mem_len: u32,
+}
+
+impl crate::processor::WitnessLh {
+    fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
+        let index = (addr - self.start_addr) / WORD_SIZE as u32;
+
+        // TODO: why minus 1?
+        let bits = 32 - self.mem_len.leading_zeros() - 1;
+        println!(
+            "index is {:b} number of bits {} (mem_len: {:b})",
+            index, bits, self.mem_len
+        );
+        println!(
+            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
+            addr, index
+        );
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            v.push(b != 0);
+        }
+
+        v
+    }
+}
+
+impl WitnessGenerator for crate::processor::WitnessLh {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        add_tag(end_root.to_vec(), "end_root");
+
+        println!(
+            "executing sw. pre={} post={}",
+            hex::encode(start_root),
+            hex::encode(end_root)
+        );
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rd_index = addr_to_index(rd_addr as usize);
+        let rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(rd_val.clone(), "rd_val");
+        println!(
+            "rd={}, rd_addr={} rd_val={}",
+            self.dec_insn.rd,
+            rd_addr,
+            hex::encode(rd_val.clone())
+        );
+
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+
+        let mem = from_mem_repr(rs1_val.clone());
+
+        // Value at rs1+imm will be memory address to load from.
+        let lw_addr = mem as i64 + (self.dec_insn.imm as i64);
+        println!(
+            "rs1val={}, mem={} imm={}, sw_addr={}",
+            hex::encode(rs1_val.clone()),
+            mem,
+            self.dec_insn.imm,
+            lw_addr
+        );
+        let lw_index = addr_to_index(lw_addr as usize);
+        let lw_path = self.addr_to_merkle(lw_addr as u32);
+
+        let mut witness = vec![hex::encode(start_root)];
+
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        // Reveal old value of memory location in witness.
+        let mem_val = pre_tree.get_leaf(lw_index);
+        let byte_offset = byte_offset(lw_addr as usize);
+        let mut masked_val = vec![0u8; 32];
+        for i in 0..16 {
+            masked_val[i] = mem_val[byte_offset * 8 + i];
+        }
+
+        // sign extend.
+        for i in 16..32 {
+            masked_val[i] = masked_val[15];
+        }
+
+        println!(
+            "mem val={} lw_addr={}, lw_index={}, masked_val={}",
+            hex::encode(mem_val.clone()),
+            lw_addr,
+            lw_index,
+            hex::encode(masked_val.clone()),
+        );
+
+        witness.push(format!("{}", witness_encode(mem_val.clone())));
+
+        let sw_proof = pre_tree.proof(lw_index, mem_val.clone()).unwrap();
+
+        for (i, b) in lw_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = sw_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        // byte offset
+        if byte_offset == 0 {
+            witness.push(format!("<>"));
+        } else if byte_offset == 1 {
+            witness.push(format!("01"));
+        } else if byte_offset == 2 {
+            witness.push(format!("02"));
+        } else if byte_offset == 3 {
+            panic!("invalid byte offsetfor lh");
+        }
+
+        let rd_proof = pre_tree.proof(rd_index, rd_val.clone()).unwrap();
+
+        witness.push(format!("{}", cat_encode(rd_val.clone())));
+        for p in rd_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(rd_index, masked_val.clone());
+        pre_tree.commit();
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_index = addr_to_index(pc_addr as usize);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessLhu {
+    insn_pc: u32,
+    dec_insn: IType,
+    start_addr: u32,
+    mem_len: u32,
+}
+
+impl crate::processor::WitnessLhu {
+    fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
+        let index = (addr - self.start_addr) / WORD_SIZE as u32;
+
+        // TODO: why minus 1?
+        let bits = 32 - self.mem_len.leading_zeros() - 1;
+        println!(
+            "index is {:b} number of bits {} (mem_len: {:b})",
+            index, bits, self.mem_len
+        );
+        println!(
+            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
+            addr, index
+        );
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            v.push(b != 0);
+        }
+
+        v
+    }
+}
+
+impl WitnessGenerator for crate::processor::WitnessLhu {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        add_tag(end_root.to_vec(), "end_root");
+
+        println!(
+            "executing sw. pre={} post={}",
+            hex::encode(start_root),
+            hex::encode(end_root)
+        );
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rd_index = addr_to_index(rd_addr as usize);
+        let rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(rd_val.clone(), "rd_val");
+        println!(
+            "rd={}, rd_addr={} rd_val={}",
+            self.dec_insn.rd,
+            rd_addr,
+            hex::encode(rd_val.clone())
+        );
+
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+
+        let mem = from_mem_repr(rs1_val.clone());
+
+        // Value at rs1+imm will be memory address to load from.
+        let lw_addr = mem as i64 + (self.dec_insn.imm as i64);
+        println!(
+            "rs1val={}, mem={} imm={}, sw_addr={}",
+            hex::encode(rs1_val.clone()),
+            mem,
+            self.dec_insn.imm,
+            lw_addr
+        );
+        let lw_index = addr_to_index(lw_addr as usize);
+        let lw_path = self.addr_to_merkle(lw_addr as u32);
+
+        let mut witness = vec![hex::encode(start_root)];
+
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        // Reveal old value of memory location in witness.
+        let mem_val = pre_tree.get_leaf(lw_index);
+        let byte_offset = byte_offset(lw_addr as usize);
+        let mut masked_val = vec![0u8; 32];
+        let mut sign_bit = 0u8;
+        for i in 0..16 {
+            masked_val[i] = mem_val[byte_offset * 8 + i];
+        }
+
+        println!(
+            "mem val={} lw_addr={}, lw_index={}, masked_val={}",
+            hex::encode(mem_val.clone()),
+            lw_addr,
+            lw_index,
+            hex::encode(masked_val.clone()),
+        );
+
+        witness.push(format!("{}", witness_encode(mem_val.clone())));
+
+        let sw_proof = pre_tree.proof(lw_index, mem_val.clone()).unwrap();
+
+        for (i, b) in lw_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = sw_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        // byte offset
+        if byte_offset == 0 {
+            witness.push(format!("<>"));
+        } else if byte_offset == 1 {
+            witness.push(format!("01"));
+        } else if byte_offset == 2 {
+            witness.push(format!("02"));
+        } else if byte_offset == 3 {
+            panic!("invalid byte offsetfor lh");
+        }
+
+        let rd_proof = pre_tree.proof(rd_index, rd_val.clone()).unwrap();
+
+        witness.push(format!("{}", cat_encode(rd_val.clone())));
+        for p in rd_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(rd_index, masked_val.clone());
+        pre_tree.commit();
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_index = addr_to_index(pc_addr as usize);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
         (witness.into_iter().rev().collect(), tags)
     }
 }
@@ -1772,14 +2778,10 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
 
         // Reveal old value of memory location in witness.
         let mem_val = pre_tree.get_leaf(lw_index);
-        let mut masked_val = vec![];
-        for (i, x) in mem_val.iter().enumerate() {
-            if i < 8 {
-                masked_val.push(*x);
-                continue;
-            }
-
-            masked_val.push(0);
+        let byte_offset = byte_offset(lw_addr as usize);
+        let mut masked_val = vec![0u8; 32];
+        for i in 0..8 {
+            masked_val[i] = mem_val[byte_offset * 8 + i];
         }
 
         println!(
@@ -1802,6 +2804,17 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
             }
             let p = sw_proof[i];
             witness.push(hex::encode(p))
+        }
+
+        // byte offset
+        if byte_offset == 0 {
+            witness.push(format!("<>"));
+        } else if byte_offset == 1 {
+            witness.push(format!("01"));
+        } else if byte_offset == 2 {
+            witness.push(format!("02"));
+        } else if byte_offset == 3 {
+            witness.push(format!("03"));
         }
 
         let rd_proof = pre_tree.proof(rd_index, rd_val.clone()).unwrap();
@@ -2097,14 +3110,6 @@ impl WitnessGenerator for crate::processor::WitnessSb {
 
         // Reveal old value of memory location in witness.
         let pre_mem_val = pre_tree.get_leaf(sw_index);
-        println!(
-            "prememval={}, new mem val={} sw_addr={}, sw_index={}",
-            hex::encode(pre_mem_val.clone()),
-            hex::encode(rs2_val.clone()),
-            sw_addr,
-            sw_index,
-        );
-
         witness.push(format!("{}", witness_encode(pre_mem_val.clone())));
 
         let byte_offset = byte_offset(sw_addr as usize);
@@ -2130,15 +3135,191 @@ impl WitnessGenerator for crate::processor::WitnessSb {
             witness.push(hex::encode(p))
         }
 
-        let mut masked_val = vec![];
-        for (i, x) in pre_mem_val.iter().enumerate() {
-            if i >= byte_offset * 8 && i < byte_offset * 8 {
-                masked_val.push(rs2_val[i % 8].clone());
-                continue;
-            }
-
-            masked_val.push(*x);
+        let mut masked_val = pre_mem_val.clone();
+        for i in byte_offset * 8..(byte_offset + 1) * 8 {
+            masked_val[i] = rs2_val[i % 8];
         }
+
+        println!(
+            "pre_mem_val={}, masked_mem_val={} byte_offset={}, sw_addr={}, sw_index={}",
+            hex::encode(pre_mem_val.clone()),
+            hex::encode(masked_val.clone()),
+            byte_offset,
+            sw_addr,
+            sw_index,
+        );
+
+        pre_tree.set_leaf(sw_index, masked_val.clone());
+        pre_tree.commit();
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_index = addr_to_index(pc_addr as usize);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessSh {
+    insn_pc: u32,
+    dec_insn: SType,
+    start_addr: u32,
+    mem_len: u32,
+}
+
+impl crate::processor::WitnessSh {
+    fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
+        let index = (addr - self.start_addr) / WORD_SIZE as u32;
+
+        // TODO: why minus 1?
+        let bits = 32 - self.mem_len.leading_zeros() - 1;
+        println!(
+            "index is {:b} number of bits {} (mem_len: {:b})",
+            index, bits, self.mem_len
+        );
+        println!(
+            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
+            addr, index
+        );
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            v.push(b != 0);
+        }
+
+        v
+    }
+}
+
+impl WitnessGenerator for crate::processor::WitnessSh {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        println!(
+            "rs2={}, rs2_addr={} rs2_val={}",
+            self.dec_insn.rs2,
+            rs2_addr,
+            hex::encode(rs2_val.clone())
+        );
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        add_tag(end_root.to_vec(), "end_root");
+
+        //        println!(
+        //            "executing store {} bits. pre={} post={}",
+        //            self.keep_bits,
+        //            hex::encode(start_root),
+        //            hex::encode(end_root)
+        //        );
+
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+
+        let mem = from_mem_repr(rs1_val.clone());
+
+        // Value at rs1+imm will be memory address to store to.
+        let sw_addr = mem as i64 + (self.dec_insn.imm as i64);
+        println!(
+            "rs1val={}, mem={} imm={}, sw_addr={}",
+            hex::encode(rs1_val.clone()),
+            mem,
+            self.dec_insn.imm,
+            sw_addr
+        );
+        let sw_index = addr_to_index(sw_addr as usize);
+        let sw_path = self.addr_to_merkle(sw_addr as u32);
+
+        let mut witness = vec![hex::encode(start_root)];
+
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+        witness.push(format!("{}", witness_encode(rs1_val)));
+        for p in rs1_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let rs2_index = addr_to_index(rs2_addr as usize);
+
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        // Reveal old value of memory location in witness.
+        let pre_mem_val = pre_tree.get_leaf(sw_index);
+        witness.push(format!("{}", witness_encode(pre_mem_val.clone())));
+
+        let byte_offset = byte_offset(sw_addr as usize);
+        if byte_offset == 0 {
+            witness.push(format!("<>"));
+        } else if byte_offset == 1 {
+            witness.push(format!("01"));
+        } else if byte_offset == 2 {
+            witness.push(format!("02"));
+        } else if byte_offset == 3 {
+            panic!("invalid byte offset for halfword");
+        }
+
+        let sw_proof = pre_tree.proof(sw_index, pre_mem_val.clone()).unwrap();
+
+        for (i, b) in sw_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = sw_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        let mut masked_val = pre_mem_val.clone();
+        let mut j = 0;
+        for i in byte_offset * 8..(byte_offset + 2) * 8 {
+            masked_val[i] = rs2_val[j];
+            j += 1;
+        }
+
+        println!(
+            "pre_mem_val={}, masked_mem_val={} byte_offset={}, sw_addr={}, sw_index={}",
+            hex::encode(pre_mem_val.clone()),
+            hex::encode(masked_val.clone()),
+            byte_offset,
+            sw_addr,
+            sw_index,
+        );
 
         pre_tree.set_leaf(sw_index, masked_val.clone());
         pre_tree.commit();
@@ -2542,7 +3723,8 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let rd_val = rs1_val + rs2_val;
+        //let rd_val = rs1_val + rs2_val;
+        let rd_val = rs1_val.wrapping_add(rs2_val);
         let rd_mem = to_mem_repr(rd_val as u32);
         add_tag(rd_mem.clone(), "rd_val");
 
@@ -2696,6 +3878,466 @@ impl WitnessGenerator for crate::processor::WitnessSub {
         (witness.into_iter().rev().collect(), tags)
     }
 }
+
+struct WitnessSltu {
+    insn_pc: u32,
+    dec_insn: RType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessSltu {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs1_val = from_mem_repr(rs1_val);
+        let rs2_val = from_mem_repr(rs2_val);
+
+        // rd <- (rs1)<(rs2)
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_mem = match rs1_val < rs2_val {
+            true => to_mem_repr(1),
+            _ => to_mem_repr(0),
+        };
+
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessXor {
+    insn_pc: u32,
+    dec_insn: RType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessXor {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs1_val = from_mem_repr(rs1_val);
+        let rs2_val = from_mem_repr(rs2_val);
+
+        // rd <- (rs1)^(rs2)
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs1_val ^ rs2_val;
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessOr {
+    insn_pc: u32,
+    dec_insn: RType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessOr {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs1_val = from_mem_repr(rs1_val);
+        let rs2_val = from_mem_repr(rs2_val);
+
+        // rd <- (rs1)|(rs2)
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs1_val | rs2_val;
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessAnd {
+    insn_pc: u32,
+    dec_insn: RType,
+}
+
+impl WitnessGenerator for crate::processor::WitnessAnd {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(self.dec_insn.rd);
+        let rs1_addr = reg_addr(self.dec_insn.rs1);
+        let rs2_addr = reg_addr(self.dec_insn.rs2);
+        let start_root = pre_tree.root();
+
+        let rs1_index = addr_to_index(rs1_addr as usize);
+        let rs1_val = pre_tree.get_leaf(rs1_index);
+        add_tag(rs1_val.clone(), "rs1_val");
+        let rs1_proof = pre_tree.proof(rs1_index, rs1_val.clone()).unwrap();
+
+        let rs2_index = addr_to_index(rs2_addr as usize);
+        let rs2_val = pre_tree.get_leaf(rs2_index);
+        add_tag(rs2_val.clone(), "rs2_val");
+        let rs2_proof = pre_tree.proof(rs2_index, rs2_val.clone()).unwrap();
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+        //let mut witness = vec![hex::encode(start_root), hex::encode(end_root)];
+
+        witness.push(format!("{}", witness_encode(rs1_val.clone())));
+        for p in rs1_proof {
+            witness.push(hex::encode(p))
+        }
+
+        witness.push(format!("{}", witness_encode(rs2_val.clone())));
+        for p in rs2_proof {
+            witness.push(hex::encode(p))
+        }
+
+        let rs1_val = from_mem_repr(rs1_val);
+        let rs2_val = from_mem_repr(rs2_val);
+
+        // rd <- (rs1)&(rs2)
+        let rd_index = addr_to_index(rd_addr as usize);
+        let pre_rd_val = pre_tree.get_leaf(rd_index);
+        add_tag(pre_rd_val.clone(), "pre_rd_val");
+
+        let rd_val = rs1_val & rs2_val;
+        let rd_mem = to_mem_repr(rd_val as u32);
+        add_tag(rd_mem.clone(), "rd_val");
+
+        let rd_proof = pre_tree.proof(rd_index, pre_rd_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(pre_rd_val.clone())));
+        for p in rd_proof {
+            witness.push(hex::encode(p))
+        }
+
+        if self.dec_insn.rd != REG_ZERO {
+            pre_tree.set_leaf(rd_index, rd_mem.clone());
+            pre_tree.commit();
+        }
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
+        //        for p in start_pc_proof.clone() {
+        //            println!("{}:", hex::encode(p));
+        //        }
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
 pub struct Script {
     pub script: String,
     pub tags: HashMap<String, String>,
@@ -2934,7 +4576,179 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_sll(&mut self, dec_insn: RType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("pc is {:b}", self.insn_pc);
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let rs2_addr = reg_addr(dec_insn.rs2);
+        let rs2_path = self.addr_to_merkle(rs2_addr);
+        let rs2_incl = Self::merkle_inclusion(&rs2_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs2 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs2 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 1),
+        );
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32 + 32),
+        );
+
+        // Get rs1 bits
+        script = format!(
+            "{}
+                {}
+                ",
+            script,
+            get_altstack(32),
+        );
+
+        // We'll drop all but the 5 lower bits of rs2
+        for i in 0..32 - 5 {
+            script = format!(
+                "{}
+                # drop MSB bit.
+                OP_FROMALTSTACK OP_DROP
+",
+                script,
+            );
+        }
+
+        // stack: rs1 bits [b31 b30 ... b1 b0]
+        // alt stack: shift bits [b0 b1 b2 b3 b4]
+
+        // Build shift amount from remainding bits.
+        for i in 0..5 {
+            script = format!(
+                "{}
+                OP_FROMALTSTACK
+                OP_IF
+",
+                script,
+            );
+
+            // num of shifts
+            let n = 0b10000 >> i;
+
+            for j in 0..32 - n {
+                script = format!(
+                    "{}
+                    OP_TOALTSTACK
+                ",
+                    script,
+                );
+            }
+            for j in 0..n {
+                script = format!(
+                    "{}
+                    OP_DROP
+                ",
+                    script,
+                );
+            }
+            for j in 0..32 - n {
+                script = format!(
+                    "{}
+                    OP_FROMALTSTACK
+                ",
+                    script,
+                );
+            }
+            for j in 0..n {
+                script = format!(
+                    "{}
+                    OP_0
+                ",
+                    script,
+                );
+            }
+
+            script = format!(
+                "{}
+                OP_ENDIF
+",
+                script,
+            );
+        }
+
+        // build mem rep format
+        script = format!(
+            "{}
+        # rd=rs<<rs bits on stack
+        {}
+
+        # rd inclusion
+        {}
+
+        OP_TOALTSTACK
+        ",
+            script,
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessSll {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags: tags,
+        }
     }
 
     fn process_slt(&mut self, dec_insn: RType) -> Self::InstructionResult {
@@ -2942,15 +4756,403 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_sltu(&mut self, dec_insn: RType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let rs2_addr = reg_addr(dec_insn.rs2);
+        let rs2_path = self.addr_to_merkle(rs2_addr);
+        let rs2_incl = Self::merkle_inclusion(&rs2_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 33),
+        );
+
+        // rs2 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs2 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 32 + 1),
+        );
+
+        // convert rs1 and rs2 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+            # on alt stack is binary encoding of rs2, convert it to scriptnum
+            {}
+
+            # on alt stack is binary encoding of rs1, convert it to scriptnum
+            {}
+        ",
+            script,
+            bits_to_scriptnum(32),
+            bits_to_scriptnum(32),
+        );
+
+        script = format!(
+            "{}
+
+            # [rs2 rs1] as script num on stack
+            OP_SWAP
+
+           # perform <
+            OP_LESSTHAN
+            OP_IF
+            0100000000000000000000000000000000000000000000000000000000000000
+            OP_ELSE
+            0000000000000000000000000000000000000000000000000000000000000000
+            OP_ENDIF
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessSltu {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
     }
 
     fn process_xor(&mut self, dec_insn: RType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let rs2_addr = reg_addr(dec_insn.rs2);
+        let rs2_path = self.addr_to_merkle(rs2_addr);
+        let rs2_incl = Self::merkle_inclusion(&rs2_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs1 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 32 + 1),
+        );
+
+        // rs2 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs2 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 32 + 1),
+        );
+
+        // rs1 and rs2 as bits on alt stack. Zip them.
+        script = format!(
+            "{}
+
+            # zip the two 32-bits numbers on the alt stack
+            {}
+
+           # perform xor
+            {}
+
+            # cat rd 32 bits
+            {}
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            zip_altstack(32),
+            bitwise_xor_u32(),
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessXor {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
     }
 
     fn process_srl(&mut self, dec_insn: RType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("pc is {:b}", self.insn_pc);
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let rs2_addr = reg_addr(dec_insn.rs2);
+        let rs2_path = self.addr_to_merkle(rs2_addr);
+        let rs2_incl = Self::merkle_inclusion(&rs2_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs2 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs2 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 1),
+        );
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32 + 32),
+        );
+
+        // Get rs1 bits
+        script = format!(
+            "{}
+                {}
+                ",
+            script,
+            get_altstack(32),
+        );
+
+        // We'll drop all but the 5 lower bits of rs2
+        for i in 0..32 - 5 {
+            script = format!(
+                "{}
+                # drop MSB bit.
+                OP_FROMALTSTACK OP_DROP
+",
+                script,
+            );
+        }
+
+        // stack: rs1 bits [b31 b30 ... b1 b0]
+        // alt stack: shift bits [b0 b1 b2 b3 b4]
+
+        // Build shift amount from remainding bits.
+        for i in 0..5 {
+            script = format!(
+                "{}
+                OP_FROMALTSTACK
+                OP_IF
+",
+                script,
+            );
+
+            // num of shifts
+            let n = 0b10000 >> i;
+
+            for j in 0..n {
+                script = format!(
+                    "{}
+                    OP_DROP
+                ",
+                    script,
+                );
+            }
+
+            for j in 0..32 - n {
+                script = format!(
+                    "{}
+                    OP_TOALTSTACK
+                ",
+                    script,
+                );
+            }
+
+            for j in 0..n {
+                script = format!(
+                    "{}
+                    OP_0
+                ",
+                    script,
+                );
+            }
+
+            for j in 0..32 - n {
+                script = format!(
+                    "{}
+                    OP_FROMALTSTACK
+                ",
+                    script,
+                );
+            }
+
+            script = format!(
+                "{}
+                OP_ENDIF
+",
+                script,
+            );
+        }
+
+        // build mem rep format
+        script = format!(
+            "{}
+        # rd=rs>>rs bits on stack
+        {}
+
+        # rd inclusion
+        {}
+
+        OP_TOALTSTACK
+        ",
+            script,
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessSrl {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags: tags,
+        }
     }
 
     fn process_sra(&mut self, dec_insn: RType) -> Self::InstructionResult {
@@ -2958,11 +5160,211 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_or(&mut self, dec_insn: RType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let rs2_addr = reg_addr(dec_insn.rs2);
+        let rs2_path = self.addr_to_merkle(rs2_addr);
+        let rs2_incl = Self::merkle_inclusion(&rs2_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs1 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 32 + 1),
+        );
+
+        // rs2 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs2 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 32 + 1),
+        );
+
+        // rs1 and rs2 as bits on alt stack. Zip them.
+        script = format!(
+            "{}
+
+            # zip the two 32-bits numbers on the alt stack
+            {}
+
+           # perform or
+            {}
+
+            # cat rd 32 bits
+            {}
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            zip_altstack(32),
+            bitwise_u32("OP_BOOLOR"),
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessOr {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
     }
 
     fn process_and(&mut self, dec_insn: RType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let rs2_addr = reg_addr(dec_insn.rs2);
+        let rs2_path = self.addr_to_merkle(rs2_addr);
+        let rs2_incl = Self::merkle_inclusion(&rs2_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs1 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 32 + 1),
+        );
+
+        // rs2 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs2 as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 32 + 1),
+        );
+
+        // rs1 and rs2 as bits on alt stack. Zip them.
+        script = format!(
+            "{}
+
+            # zip the two 32-bits numbers on the alt stack
+            {}
+
+           # perform and
+            {}
+
+            # cat rd 32 bits
+            {}
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            zip_altstack(32),
+            bitwise_u32("OP_BOOLAND"),
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessAnd {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
     }
 
     fn process_addi(&mut self, dec_insn: IType) -> Self::InstructionResult {
@@ -3170,19 +5572,422 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_sltui(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        //let imm = dec_insn.imm.to_le_bytes().to_vec();
+
+        let imm = to_mem_repr(dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 33),
+        );
+
+        // convert rs1 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of rs1, convert it to scriptnum
+            {}
+        ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        script = format!(
+            "{}
+
+            # rs as script num on stack
+           {} #imm script num
+
+           # perform <
+            OP_LESSTHAN
+            OP_IF
+            0100000000000000000000000000000000000000000000000000000000000000
+            OP_ELSE
+            0000000000000000000000000000000000000000000000000000000000000000
+            OP_ENDIF
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            script_encode_const(dec_insn.imm),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessSltui {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
     }
 
     fn process_xori(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        //let imm = dec_insn.imm.to_le_bytes().to_vec();
+
+        let imm = to_mem_repr(dec_insn.imm as u32);
+
+        add_tag(imm.clone(), "imm");
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+        # rs as [u1;32]= [a31 ... a1 a0] on stack
+        # cat 32 bits
+        {}
+
+        # check rs inclusion
+        {}
+
+        ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 33),
+        );
+
+        script = format!(
+            "{}
+
+            # rs on alt stack: [a0 ... a30 a31]
+            # zip 32-bits of imm with rs bits
+           {} #imm
+
+           # perform bitwise xor
+            {}
+
+            # cat rd 32 bits
+            {}
+
+           # build new root
+           {}
+
+    # current root on stack
+    OP_TOALTSTACK
+",
+            script,
+            zip_with_altstack(imm.clone()),
+            bitwise_xor_u32(),
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessXori {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags,
+        }
     }
 
     fn process_srli(&mut self, dec_insn: ITypeShamt) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("pc is {:b}", self.insn_pc);
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32),
+        );
+
+        // Shift the value right by shamt positsion.
+        for i in (0..dec_insn.shamt) {
+            script = format!(
+                "{}
+                OP_0
+",
+                script,
+            );
+        }
+
+        // First get all bits but shamt LSB bits from altstack
+        script = format!(
+            "{}
+                # get MSB bits rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                ",
+            script,
+            get_altstack(32 - dec_insn.shamt),
+        );
+
+        // drop the shamt LSB bits.
+        for i in (0..dec_insn.shamt) {
+            script = format!(
+                "{}
+                # drop MSB bit.
+                OP_FROMALTSTACK OP_DROP
+",
+                script,
+            );
+        }
+
+        // build mem rep format
+        script = format!(
+            "{}
+        # rd=rs>>shamt  bits on stack
+        {}
+
+        # rd inclusion
+        {}
+
+        # new root to alt stack
+        OP_TOALTSTACK
+        ",
+            script,
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessSrli {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags: tags,
+        }
     }
 
     fn process_srai(&mut self, dec_insn: ITypeShamt) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("pc is {:b}", self.insn_pc);
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_path = self.addr_to_merkle(pc_addr);
+        let pc_incl = Self::merkle_inclusion(&pc_path);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let rd_addr = reg_addr(dec_insn.rd);
+        let rd_path = self.addr_to_merkle(rd_addr);
+        let rd_incl = Self::merkle_inclusion(&rd_path);
+
+        let rs1_addr = reg_addr(dec_insn.rs1);
+        let rs1_path = self.addr_to_merkle(rs1_addr);
+        let rs1_incl = Self::merkle_inclusion(&rs1_path);
+
+        let mut script = push_altstack(&self.str);
+
+        // rs1 on stack, verify against start root on alt stack.
+        script = format!(
+            "{}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32),
+        );
+
+        // Get the sign bit from the alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK
+",
+            script,
+        );
+
+        // Shift the value right by shamt positsion.
+        for i in (0..dec_insn.shamt) {
+            script = format!(
+                "{}
+                OP_DUP
+",
+                script,
+            );
+        }
+
+        // get all bits but shamt LSB bits from altstack
+        script = format!(
+            "{}
+                # get MSB bits rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                ",
+            script,
+            get_altstack(31 - dec_insn.shamt),
+        );
+
+        // drop the shamt LSB bits.
+        for i in (0..dec_insn.shamt) {
+            script = format!(
+                "{}
+                # drop MSB bit.
+                OP_FROMALTSTACK
+                OP_DROP
+",
+                script,
+            );
+        }
+
+        // build mem rep format
+        script = format!(
+            "{}
+        # rd=rs>>shamt  bits on stack
+        {}
+
+        # rd inclusion
+        {}
+
+        # new root to alt stack
+        OP_TOALTSTACK
+        ",
+            script,
+            cat_32_bits(false),
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessSrai {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+            }),
+            tags: tags,
+        }
     }
 
     fn process_ori(&mut self, dec_insn: IType) -> Self::InstructionResult {
@@ -3596,13 +6401,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         script = format!(
             "{}
                     # mem val on stack, verify merkle proof for memory location.
-                    #OP_DUP OP_TOALTSTACK
-
                     # inclusion at imm+rs1
                     {}
                 ",
             script,
-            self.verify_path_inclusion(bits, 2 + bits+32),
+            self.verify_path_inclusion(bits, 2 + bits + 32),
         );
 
         // TODO: do arithmetics on u32le isntead?
@@ -3611,6 +6414,12 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                 # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
                 #check that it matches.
                 {}
+
+                # push copy byte offset to altstack
+                OP_SWAP
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
         ",
             script,
             bits_to_scriptnum(bits),
@@ -3630,6 +6439,9 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
                         #subtract imm
                         {} OP_SUB
+
+                        # add byte offset
+                        OP_ADD
                     ",
             script,
             hex::encode(offset.clone()),
@@ -3639,17 +6451,16 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(offset.clone(), "address offset");
         add_tag(imm.clone(), "imm");
 
-
         // Get rs1 script num from alt stack
         script = format!(
             "{}
                     {}
                 ",
             script,
-            get_altstack(32+1),
+            get_altstack(32 + 2),
         );
 
-        for i in 0..32 {
+        for i in 0..33 {
             script = format!(
                 "{}
                 OP_SWAP
@@ -3667,36 +6478,55 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script,
         );
 
+        // alt stack: [<mem val bits>, byte_offset]
+        script = format!(
+            "{}
+                OP_FROMALTSTACK
+                ",
+            script,
+        );
 
-        // Drop the 32-8 first bites of the memory value
-        for i in 0..24 {
+        // Cat each byte of the memory value
+        for i in 0..4 {
             script = format!(
                 "{}
-                OP_FROMALTSTACK
+                {}
+
+                # build mem rep format of byte
+                {}
+
+                ",
+                script,
+                get_altstack(8),
+                cat_n_bits(8, false),
+            );
+        }
+
+        // stack: [byte_offset byte3 byte2 byte1 byte0]
+
+        // get the byte to keep
+        script = format!(
+            "{}
+                OP_4
+                OP_ROLL
+                OP_PICK
+                OP_TOALTSTACK
                 OP_DROP
-                OP_0
+                OP_DROP
+                OP_DROP
+                OP_DROP
                 ",
-                script,
-            );
-        }
-
-        // get the LSB byte to keep
-        for i in 0..8 {
-            script = format!(
-                "{}
-                OP_FROMALTSTACK
-                ",
-                script,
-            );
-        }
+            script,
+        );
 
         script = format!(
             "{}
-                # build mem repr format
-                {}
+                # build mem repr format of final byte
+                OP_FROMALTSTACK
+                000000000000000000000000000000000000000000000000
+                OP_CAT
                 ",
             script,
-            cat_32_bits(false),
         );
 
         // Build new root from rd
@@ -3731,11 +6561,585 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_lh(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("dec_insn={:?}", dec_insn);
+        println!("pc is {:b}", self.insn_pc);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        add_tag(pc_start.clone(), "pc_start");
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        add_tag(pc_end.clone(), "pc_end");
+        let imm = to_script_num(dec_insn.imm);
+
+        let mut script = push_altstack(&self.str);
+
+        // steps
+        // 1. check value rs1 from witness against start root
+        // 3. execute merkle proof on witness to check inclusion of rd at memory location
+        // 2. build end root from rd
+        // 4. Use the bits from the previous merkle proof to calculate the meory index
+        // 5. check that the memory index matches rs+imm
+
+        // rs1 on stack, verify against root on alt stack.
+        script = format!(
+            "{}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32),
+        );
+
+        // convert rs1 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of rs1, convert it to scriptnum
+            {}
+
+            OP_TOALTSTACK
+        ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // mem on stack, verify against root on alt stack.
+        script = format!(
+            "{}
+                # mem value in bit format on stack, build mem repr format, copy bits to alt stack
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+        );
+
+        let bits = self.num_bits();
+        script = format!(
+            "{}
+                    # mem val on stack, verify merkle proof for memory location.
+                    # inclusion at imm+rs1
+                    {}
+                ",
+            script,
+            self.verify_path_inclusion(bits, 2 + bits + 32),
+        );
+
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
+                #check that it matches.
+                {}
+
+                # push copy byte offset to altstack
+                OP_SWAP
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
+        ",
+            script,
+            bits_to_scriptnum(bits),
+        );
+
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
+
+        script = format!(
+            "{}
+                        # now check that the number from binary equals the opcode memory address
+                        # multiply by 4
+                        OP_DUP OP_ADD
+                        OP_DUP OP_ADD
+
+                        # add address offset.
+                        {} OP_ADD
+
+                        #subtract imm
+                        {} OP_SUB
+
+                        # add byte offset
+                        OP_ADD
+                    ",
+            script,
+            hex::encode(offset.clone()),
+            script_encode_const(dec_insn.imm),
+        );
+
+        add_tag(offset.clone(), "address offset");
+        add_tag(imm.clone(), "imm");
+
+        // Get rs1 script num from alt stack
+        script = format!(
+            "{}
+                    {}
+                ",
+            script,
+            get_altstack(32 + 2),
+        );
+
+        for i in 0..33 {
+            script = format!(
+                "{}
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+                script,
+            );
+        }
+
+        script = format!(
+            "{}
+
+                        OP_EQUALVERIFY
+                    ",
+            script,
+        );
+
+        // alt stack: [<mem val bits>, byte_offset]
+        script = format!(
+            "{}
+                OP_FROMALTSTACK
+                ",
+            script,
+        );
+
+        // Cat each byte of the memory value, and keep the sign bit around for sign extension.
+        // stacl: [byte_offset]
+        // alt stack: [<mem val bits>]
+        for i in 0..4 {
+            script = format!(
+                "{}
+                # get 8 bits.
+                {}
+
+                # Duplicate sign bit.
+                OP_DUP
+                OP_TOALTSTACK
+
+                # build mem rep format of byte
+                {}
+
+                # get sign bit
+                OP_FROMALTSTACK
+                ",
+                script,
+                get_altstack(8),
+                cat_n_bits(8, false),
+            );
+        }
+
+        // stack: [byte_offset byte3 sign_bit3 byte2 sign_bit2 byte1 sign_bit1 byte0 sign_bit0]
+        // get the halfword to keep
+        script = format!(
+            "{}
+                # get the byte offset on top
+                OP_8
+                OP_ROLL
+
+                # copy the offset
+                OP_DUP
+                OP_TOALTSTACK
+
+                # get the LSB byte, we don't need the sign bit.
+                OP_DUP
+                OP_ADD
+                OP_1ADD
+                OP_PICK
+
+                # get the offset from the alt stack, and push the LSB byte there.
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+
+                # next byte offset
+                OP_1ADD
+                OP_DUP
+                OP_ADD
+
+                # bit offset to alt stack
+                OP_DUP
+                OP_TOALTSTACK
+
+                # byte offset
+                OP_1ADD
+
+                # next byte
+                OP_PICK
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+
+                # sign bit
+                OP_PICK
+                OP_TOALTSTACK
+
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                ",
+            script,
+        );
+
+        // alt stack: [byte_i byte_i+1 sign_bit]
+        script = format!(
+            "{}
+                # build mem repr format of final byte
+                OP_FROMALTSTACK
+                OP_NOTIF
+                00000000000000000000000000000000
+                OP_ELSE
+                01010101010101010101010101010101
+                OP_ENDIF
+
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_CAT
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_CAT
+                ",
+            script,
+        );
+
+        // Build new root from rd
+        script = format!(
+            "{}
+                    # old rd on stack, new rd on stack
+                   # build root
+                   {}
+
+            # new root on stack
+            OP_TOALTSTACK
+        ",
+            script,
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessLh {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                start_addr: self.start_addr,
+                mem_len: self.mem_len,
+            }),
+
+            tags: tags,
+        }
     }
 
     fn process_lhu(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("dec_insn={:?}", dec_insn);
+        println!("pc is {:b}", self.insn_pc);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        add_tag(pc_start.clone(), "pc_start");
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        add_tag(pc_end.clone(), "pc_end");
+        let imm = to_script_num(dec_insn.imm);
+
+        let mut script = push_altstack(&self.str);
+
+        // steps
+        // 1. check value rs1 from witness against start root
+        // 3. execute merkle proof on witness to check inclusion of rd at memory location
+        // 2. build end root from rd
+        // 4. Use the bits from the previous merkle proof to calculate the meory index
+        // 5. check that the memory index matches rs+imm
+
+        // rs1 on stack, verify against root on alt stack.
+        script = format!(
+            "{}
+                # rs1 in bit format on stack. Build mem repr format.
+                {}
+
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 1 + 32),
+        );
+
+        // convert rs1 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of rs1, convert it to scriptnum
+            {}
+
+            OP_TOALTSTACK
+        ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // mem on stack, verify against root on alt stack.
+        script = format!(
+            "{}
+                # mem value in bit format on stack, build mem repr format, copy bits to alt stack
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+        );
+
+        let bits = self.num_bits();
+        script = format!(
+            "{}
+                    # mem val on stack, verify merkle proof for memory location.
+                    # inclusion at imm+rs1
+                    {}
+                ",
+            script,
+            self.verify_path_inclusion(bits, 2 + bits + 32),
+        );
+
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
+                #check that it matches.
+                {}
+
+                # push copy byte offset to altstack
+                OP_SWAP
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
+        ",
+            script,
+            bits_to_scriptnum(bits),
+        );
+
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
+
+        script = format!(
+            "{}
+                        # now check that the number from binary equals the opcode memory address
+                        # multiply by 4
+                        OP_DUP OP_ADD
+                        OP_DUP OP_ADD
+
+                        # add address offset.
+                        {} OP_ADD
+
+                        #subtract imm
+                        {} OP_SUB
+
+                        # add byte offset
+                        OP_ADD
+                    ",
+            script,
+            hex::encode(offset.clone()),
+            script_encode_const(dec_insn.imm),
+        );
+
+        add_tag(offset.clone(), "address offset");
+        add_tag(imm.clone(), "imm");
+
+        // Get rs1 script num from alt stack
+        script = format!(
+            "{}
+                    {}
+                ",
+            script,
+            get_altstack(32 + 2),
+        );
+
+        for i in 0..33 {
+            script = format!(
+                "{}
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+                script,
+            );
+        }
+
+        script = format!(
+            "{}
+
+                        OP_EQUALVERIFY
+                    ",
+            script,
+        );
+
+        // alt stack: [<mem val bits>, byte_offset]
+        script = format!(
+            "{}
+                OP_FROMALTSTACK
+                ",
+            script,
+        );
+
+        // Cat each byte of the memory value, and keep the sign bit around for sign extension.
+        // stacl: [byte_offset]
+        // alt stack: [<mem val bits>]
+        for i in 0..4 {
+            script = format!(
+                "{}
+                # get 8 bits.
+                {}
+
+                # Duplicate sign bit.
+                OP_DUP
+                OP_TOALTSTACK
+
+                # build mem rep format of byte
+                {}
+
+                # get sign bit
+                OP_FROMALTSTACK
+                ",
+                script,
+                get_altstack(8),
+                cat_n_bits(8, false),
+            );
+        }
+
+        // stack: [byte_offset byte3 sign_bit3 byte2 sign_bit2 byte1 sign_bit1 byte0 sign_bit0]
+        // get the halfword to keep
+        script = format!(
+            "{}
+                # get the byte offset on top
+                OP_8
+                OP_ROLL
+
+                # copy the offset
+                OP_DUP
+                OP_TOALTSTACK
+
+                # get the LSB byte, we don't need the sign bit.
+                OP_DUP
+                OP_ADD
+                OP_1ADD
+                OP_PICK
+
+                # get the offset from the alt stack, and push the LSB byte there.
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+
+                # next byte offset
+                OP_1ADD
+                OP_DUP
+                OP_ADD
+
+                # bit offset to alt stack
+                OP_DUP
+                OP_TOALTSTACK
+
+                # byte offset
+                OP_1ADD
+
+                # next byte
+                OP_PICK
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+
+                # sign bit
+                OP_PICK
+                OP_TOALTSTACK
+
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                OP_DROP
+                ",
+            script,
+        );
+
+        // alt stack: [byte_i byte_i+1 sign_bit]
+        // HACK: we just ignore the sign bit
+        script = format!(
+            "{}
+                # build mem repr format of final byte
+                OP_FROMALTSTACK
+                OP_DROP
+                00000000000000000000000000000000
+
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_CAT
+                OP_FROMALTSTACK
+                OP_SWAP
+                OP_CAT
+                ",
+            script,
+        );
+
+        // Build new root from rd
+        script = format!(
+            "{}
+                    # old rd on stack, new rd on stack
+                   # build root
+                   {}
+
+            # new root on stack
+            OP_TOALTSTACK
+        ",
+            script,
+            self.amend_register(dec_insn.rd, 1),
+        );
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessLhu {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                start_addr: self.start_addr,
+                mem_len: self.mem_len,
+            }),
+
+            tags: tags,
+        }
     }
 
     fn process_lw(&mut self, dec_insn: IType) -> Self::InstructionResult {
@@ -4172,7 +7576,284 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_sh(&mut self, dec_insn: SType) -> Self::InstructionResult {
-        todo!()
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        println!("dec_insn={:?}", dec_insn);
+        println!("pc is {:b}", self.insn_pc);
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        add_tag(pc_start.clone(), "pc_start");
+        println!(
+            "converting pc {} for script->{}",
+            hex::encode((self.insn_pc).to_le_bytes()),
+            hex::encode(pc_start.clone())
+        );
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        add_tag(pc_end.clone(), "pc_end");
+
+        let imm = to_script_num(dec_insn.imm);
+
+        let mut script = push_altstack(&self.str);
+
+        // verify rs1
+        script = format!(
+            "{}
+                # rs1 in bits format on stack. Build mem repr format
+                {}
+                # rs1 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs1, 32 + 1),
+        );
+
+        // convert rs1 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of rs1, convert it to scriptnum
+            {}
+
+            OP_TOALTSTACK
+        ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // rs2 on stack, verify against root on alt stack.
+        // TODO: build memrep format here, mask it
+        script = format!(
+            "{}
+                # rs2 in bit format on stack, build mem repr format, copy bits to alt stack
+                {}
+                # rs2 inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(dec_insn.rs2, 32 + 2),
+        );
+
+        // Drop the 32-16 first bites of rs2
+        for i in 0..16 {
+            script = format!(
+                "{}
+                OP_FROMALTSTACK
+                OP_DROP
+                ",
+                script,
+            );
+        }
+
+        // build memrep format of the halfword to replace
+        for i in 0..16 {
+            script = format!(
+                "{}
+                OP_FROMALTSTACK
+                ",
+                script,
+            );
+        }
+        script = format!(
+            "{}
+                # build mem rep format of halfword
+                {}
+
+                OP_TOALTSTACK
+                ",
+            script,
+            cat_n_bits(16, false),
+        );
+
+        script = format!(
+            "{}
+                # old value of word at memory index in bit format. Build memrep format and copy bits.
+                {}
+
+                # swap to get offset on top
+                OP_SWAP
+                ",
+            script,
+            cat_32_bits(true),
+        );
+
+        // Get the bits
+        script = format!(
+            "{}
+                    {}
+                ",
+            script,
+            get_altstack(32),
+        );
+
+        // we build a memrep format of each byte
+        for i in 0..4 {
+            script = format!(
+                "{}
+                # build mem rep format of byte
+                {}
+
+                OP_TOALTSTACK
+                ",
+                script,
+                cat_n_bits(8, false),
+            );
+        }
+
+        // on altstack: [new_halfword byte0 byte1 byte2 byte3]
+        // on stack: <byte offset>
+        // replace with new byte depending on offset
+        script = format!(
+            "{}
+                    {}
+                OP_5 OP_ROLL
+                ",
+            script,
+            get_altstack(5),
+        );
+
+        // stack : [byte3 byte2 byte1 byte0 new_halfword <offset>]
+        // where byte0 is LSB byte
+        script = format!(
+            "{}
+                # copy byte offset to alt stack
+                OP_DUP
+                OP_TOALTSTACK
+                OP_0
+                OP_EQUAL
+                # if offset is 0
+                OP_IF
+                    OP_SWAP
+                    OP_DROP
+                    OP_SWAP
+                    OP_DROP
+                OP_ELSE
+                    OP_FROMALTSTACK
+                    OP_DUP
+                    OP_TOALTSTACK
+                    OP_1
+                    OP_EQUAL
+                    # if offset is 1
+                    OP_IF
+                        OP_ROT
+                        OP_DROP
+                        OP_ROT
+                        OP_DROP
+                        OP_SWAP
+                    OP_ELSE
+                        OP_FROMALTSTACK
+                        OP_DUP
+                        OP_TOALTSTACK
+                        OP_2
+                        OP_EQUAL
+                        OP_IF
+                            # offset is 2
+                            OP_3
+                            OP_ROLL
+                            OP_DROP
+                            OP_3
+                            OP_ROLL
+                            OP_DROP
+                            OP_SWAP
+                            OP_TOALTSTACK
+                            OP_SWAP
+                            OP_FROMALTSTACK
+                       OP_ENDIF
+                    OP_ENDIF
+                OP_ENDIF
+                ",
+            script,
+        );
+
+        //  on stack [byte3 new_halfword byte0] (depending on which bytes were replaced
+        // cat them to creat mem rep
+        script = format!(
+            "{}
+                OP_SWAP
+                # byte0|hw
+                OP_CAT
+                OP_SWAP
+                # byte0|hw|byte3
+                OP_CAT
+                ",
+            script,
+        );
+
+        let bits = self.num_bits();
+        // on stack [<old word inclusion proof> old_word new_word]
+        script = format!(
+            "{}
+        # amend path
+        {}
+                ",
+            script,
+            self.amend_path(bits, bits + 3),
+        );
+
+        // On stack: new root
+        // alt stack: [start_root rs1_script_num byte_offset <index bits>]
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
+                {}
+        ",
+            script,
+            bits_to_scriptnum(bits),
+        );
+
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
+        script = format!(
+            "{}
+                        # now check that the number from binary equals the opcode memory address
+                        # multiply by 4
+                        OP_DUP OP_ADD
+                        OP_DUP OP_ADD
+
+                        # add address offset.
+                        {} OP_ADD
+
+                        #subtract imm
+                        {} OP_SUB
+
+                        # add byte offset
+                        OP_FROMALTSTACK
+                        OP_ADD
+
+                        # get rs1 from alt stack
+                        OP_FROMALTSTACK
+                        OP_EQUALVERIFY
+                    ",
+            script,
+            hex::encode(offset.clone()),
+            script_encode_const(dec_insn.imm),
+        );
+        add_tag(offset.clone(), "address offset");
+        add_tag(imm.clone(), "imm");
+
+        // new root on stack.
+        script = push_altstack(&script);
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 2);
+
+        Script {
+            script: script,
+            witness_gen: Box::new(WitnessSh {
+                insn_pc: self.insn_pc,
+                dec_insn: dec_insn,
+                start_addr: self.start_addr,
+                mem_len: self.mem_len,
+            }),
+            tags: tags,
+        }
     }
 
     fn process_sw(&mut self, dec_insn: SType) -> Self::InstructionResult {
