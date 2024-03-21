@@ -1550,7 +1550,7 @@ impl WitnessGenerator for crate::processor::WitnessSltui {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
-        let rd_mem= match rs_val < self.dec_insn.imm as u32 {
+        let rd_mem = match rs_val < self.dec_insn.imm as u32 {
             true => to_mem_repr(1),
             _ => to_mem_repr(0),
         };
@@ -2311,8 +2311,10 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         let rs1_num = from_mem_repr(rs1_val);
 
         let branch_pc = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
-        println!("rs1={:x} ({}) rs2={:x} ({}) branch_pc={:x}", rs1_num, rs1_num as i32, rs2_num,
-                 rs2_num as i32, branch_pc);
+        println!(
+            "rs1={:x} ({}) rs2={:x} ({}) branch_pc={:x}",
+            rs1_num, rs1_num as i32, rs2_num, rs2_num as i32, branch_pc
+        );
         let branch_val = to_mem_repr(branch_pc);
 
         let pc_end = match self.branch_cond {
@@ -4717,7 +4719,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 ",
                 script,
             );
-
         }
 
         // build mem rep format
@@ -5089,7 +5090,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                 );
             }
 
-
             for j in 0..32 - n {
                 script = format!(
                     "{}
@@ -5108,7 +5108,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                 );
             }
 
-
             for j in 0..32 - n {
                 script = format!(
                     "{}
@@ -5124,7 +5123,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 ",
                 script,
             );
-
         }
 
         // build mem rep format
@@ -5632,7 +5630,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             bits_to_scriptnum(32),
         );
 
-
         script = format!(
             "{}
 
@@ -5841,7 +5838,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             );
         }
 
-
         // build mem rep format
         script = format!(
             "{}
@@ -5930,7 +5926,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script,
         );
 
-
         // Shift the value right by shamt positsion.
         for i in (0..dec_insn.shamt) {
             script = format!(
@@ -5963,7 +5958,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
                 script,
             );
         }
-
 
         // build mem rep format
         script = format!(
