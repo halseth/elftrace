@@ -6169,7 +6169,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         Script {
             script,
-            witness_gen: Box::new(WitnessXori {
+            witness_gen: Box::new(WitnessOri {
                 insn_pc: self.insn_pc,
                 dec_insn: dec_insn,
             }),
