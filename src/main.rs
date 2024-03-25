@@ -62,6 +62,9 @@ fn main() {
     let mut first = true;
     let mut addr: u32 = 0;
     let mut scripts = HashMap::new();
+
+    fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
+
     for _addr in program.program_range.step_by(WORD_SIZE) {
         addr = _addr;
         if first {
@@ -89,8 +92,6 @@ fn main() {
 
         println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
         let desc = process_instruction(&mut outputter, insn).unwrap();
-
-        fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
 
         let pc_str = format!("{:05x}", addr);
         let mut script_file = File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
@@ -158,9 +159,9 @@ fn main() {
                     w_tags.extend(desc.tags.clone().into_iter());
 
                     let pc_str = format!("{:05x}", pcc);
-                    let mut witness_file =
-                        File::create(format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str))
-                            .unwrap();
+                    let witness_file_name =
+                        format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
+                    let mut witness_file = File::create(witness_file_name.clone()).unwrap();
                     write!(witness_file, "{}", witness.join("\n")).unwrap();
 
                     let tags_file =
@@ -197,6 +198,7 @@ fn main() {
 
                     // Start and  end root alwyas first in the witness.
                     //let witness = vec![];
+                    println!("wrote {}", witness_file_name);
                 }
 
                 let r1 = hex::encode(script_tree.root());
@@ -381,6 +383,10 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
 
     let end_mem = GUEST_MAX_MEM;
     for addr in (GUEST_MIN_MEM..end_mem).step_by(WORD_SIZE) {
+        if addr % (1024 * 512) == 0 {
+            println!("building addr {}/{}", addr, GUEST_MAX_MEM);
+        }
+
         let b = load_addr(temp_image, addr);
         set_commit(fast_tree, addr, b);
     }
