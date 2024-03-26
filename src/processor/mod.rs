@@ -594,14 +594,6 @@ impl BitcoinInstructionProcessor {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -1042,17 +1034,11 @@ OP_DUP
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
 
         let mut pc_end = to_mem_repr(self.insn_pc + 4);
         let imm = to_mem_repr(dec_insn.imm as u32);
@@ -1060,16 +1046,6 @@ OP_DUP
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
-
-        //        println!(
-        //            "branch_val={:x} (as scriptnum={}), pc={:x} imm={:x} imm<<12={:x}",
-        //            res,
-        //            hex::encode(rd_val.clone()),
-        //            self.insn_pc,
-        //            dec_insn.imm,
-        //            (dec_insn.imm as u32) << 12,
-        //        );
-        println!("imm {:x} for script->{}", dec_insn.imm, hex::encode(imm),);
 
         let rs2_addr = reg_addr(dec_insn.rs2);
         let rs2_path = self.addr_to_merkle(rs2_addr);
@@ -1134,7 +1110,6 @@ OP_DUP
         );
 
         let branch_pc = self.insn_pc.wrapping_add(dec_insn.imm as u32);
-        println!("branch_pc={:x}", branch_pc);
         let branch_val = to_mem_repr(branch_pc);
 
         script = format!(
@@ -1202,11 +1177,6 @@ impl WitnessGenerator for WitnessAddi {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         let imm = to_mem_repr(self.dec_insn.imm as u32);
 
@@ -1257,11 +1227,6 @@ impl WitnessGenerator for WitnessAddi {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -1306,11 +1271,6 @@ impl WitnessGenerator for WitnessAndi {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         let imm = to_mem_repr(self.dec_insn.imm as u32);
 
@@ -1361,11 +1321,6 @@ impl WitnessGenerator for WitnessAndi {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -1410,11 +1365,6 @@ impl WitnessGenerator for crate::processor::WitnessXori {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         let imm = to_mem_repr(self.dec_insn.imm as u32);
 
@@ -1464,11 +1414,6 @@ impl WitnessGenerator for crate::processor::WitnessXori {
 
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -1564,11 +1509,6 @@ impl WitnessGenerator for crate::processor::WitnessOri {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -1613,11 +1553,6 @@ impl WitnessGenerator for crate::processor::WitnessSltui {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         let imm = to_mem_repr(self.dec_insn.imm as u32);
 
@@ -1670,11 +1605,6 @@ impl WitnessGenerator for crate::processor::WitnessSltui {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -1719,11 +1649,6 @@ impl WitnessGenerator for crate::processor::WitnessSrl {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -1768,7 +1693,6 @@ impl WitnessGenerator for crate::processor::WitnessSrl {
 
         //let rd_val = rs1_val >> rs2_val;
         let rd_val = rs1_val.wrapping_shr(rs2_val);
-        println!("rd={} = rs1={} >> rs2i={}", rd_val, rs1_val, rs2_val);
         let rd_mem = to_mem_repr(rd_val);
         add_tag(rd_mem.clone(), "rd_val");
 
@@ -1785,11 +1709,6 @@ impl WitnessGenerator for crate::processor::WitnessSrl {
 
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -1835,11 +1754,6 @@ impl WitnessGenerator for crate::processor::WitnessSll {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -1882,8 +1796,8 @@ impl WitnessGenerator for crate::processor::WitnessSll {
         let pre_rd_val = pre_tree.get_leaf(rd_index);
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
+        //let rd_val = rs1_val << rs2_val;
         let rd_val = rs1_val.wrapping_shl(rs2_val);
-        println!("rd={} = rs1={} << rs2i={}", rd_val, rs1_val, rs2_val);
         let rd_mem = to_mem_repr(rd_val);
         add_tag(rd_mem.clone(), "rd_val");
 
@@ -1900,11 +1814,6 @@ impl WitnessGenerator for crate::processor::WitnessSll {
 
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -1987,11 +1896,6 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
         let pc_index = addr_to_index(pc_addr as usize);
         let pc_start = to_mem_repr(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         let pc_end = to_mem_repr(self.insn_pc + 4);
         pre_tree.set_leaf(pc_index, pc_end.clone());
@@ -2076,11 +1980,6 @@ impl WitnessGenerator for crate::processor::WitnessSrli {
         let pc_start = to_mem_repr(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         let pc_end = to_mem_repr(self.insn_pc + 4);
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -2163,11 +2062,6 @@ impl WitnessGenerator for crate::processor::WitnessSrai {
         let pc_index = addr_to_index(pc_addr as usize);
         let pc_start = to_mem_repr(self.insn_pc);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         let pc_end = to_mem_repr(self.insn_pc + 4);
         pre_tree.set_leaf(pc_index, pc_end.clone());
@@ -2410,10 +2304,6 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
         let rs1_num = from_mem_repr(rs1_val);
 
         let branch_pc = self.insn_pc.wrapping_add(self.dec_insn.imm as u32);
-        println!(
-            "rs1={:x} ({}) rs2={:x} ({}) branch_pc={:x}",
-            rs1_num, rs1_num as i32, rs2_num, rs2_num as i32, branch_pc
-        );
         let branch_val = to_mem_repr(branch_pc);
 
         let pc_end = match self.branch_cond {
@@ -2451,14 +2341,6 @@ impl crate::processor::WitnessLh {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -2488,22 +2370,10 @@ impl WitnessGenerator for crate::processor::WitnessLh {
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
 
-        println!(
-            "executing sw. pre={} post={}",
-            hex::encode(start_root),
-            hex::encode(end_root)
-        );
-
         let rd_addr = reg_addr(self.dec_insn.rd);
         let rd_index = addr_to_index(rd_addr as usize);
         let rd_val = pre_tree.get_leaf(rd_index);
         add_tag(rd_val.clone(), "rd_val");
-        println!(
-            "rd={}, rd_addr={} rd_val={}",
-            self.dec_insn.rd,
-            rd_addr,
-            hex::encode(rd_val.clone())
-        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -2514,13 +2384,6 @@ impl WitnessGenerator for crate::processor::WitnessLh {
 
         // Value at rs1+imm will be memory address to load from.
         let lw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs1val={}, mem={} imm={}, sw_addr={}",
-            hex::encode(rs1_val.clone()),
-            mem,
-            self.dec_insn.imm,
-            lw_addr
-        );
         let lw_index = addr_to_index(lw_addr as usize);
         let lw_path = self.addr_to_merkle(lw_addr as u32);
 
@@ -2545,14 +2408,6 @@ impl WitnessGenerator for crate::processor::WitnessLh {
         for i in 16..32 {
             masked_val[i] = masked_val[15];
         }
-
-        println!(
-            "mem val={} lw_addr={}, lw_index={}, masked_val={}",
-            hex::encode(mem_val.clone()),
-            lw_addr,
-            lw_index,
-            hex::encode(masked_val.clone()),
-        );
 
         witness.push(format!("{}", witness_encode(mem_val.clone())));
 
@@ -2624,14 +2479,6 @@ impl crate::processor::WitnessLhu {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -2661,22 +2508,10 @@ impl WitnessGenerator for crate::processor::WitnessLhu {
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
 
-        println!(
-            "executing sw. pre={} post={}",
-            hex::encode(start_root),
-            hex::encode(end_root)
-        );
-
         let rd_addr = reg_addr(self.dec_insn.rd);
         let rd_index = addr_to_index(rd_addr as usize);
         let rd_val = pre_tree.get_leaf(rd_index);
         add_tag(rd_val.clone(), "rd_val");
-        println!(
-            "rd={}, rd_addr={} rd_val={}",
-            self.dec_insn.rd,
-            rd_addr,
-            hex::encode(rd_val.clone())
-        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -2687,13 +2522,6 @@ impl WitnessGenerator for crate::processor::WitnessLhu {
 
         // Value at rs1+imm will be memory address to load from.
         let lw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs1val={}, mem={} imm={}, sw_addr={}",
-            hex::encode(rs1_val.clone()),
-            mem,
-            self.dec_insn.imm,
-            lw_addr
-        );
         let lw_index = addr_to_index(lw_addr as usize);
         let lw_path = self.addr_to_merkle(lw_addr as u32);
 
@@ -2714,14 +2542,6 @@ impl WitnessGenerator for crate::processor::WitnessLhu {
         for i in 0..16 {
             masked_val[i] = mem_val[byte_offset * 8 + i];
         }
-
-        println!(
-            "mem val={} lw_addr={}, lw_index={}, masked_val={}",
-            hex::encode(mem_val.clone()),
-            lw_addr,
-            lw_index,
-            hex::encode(masked_val.clone()),
-        );
 
         witness.push(format!("{}", witness_encode(mem_val.clone())));
 
@@ -2793,14 +2613,6 @@ impl crate::processor::WitnessLbu {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -2830,22 +2642,10 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
 
-        println!(
-            "executing sw. pre={} post={}",
-            hex::encode(start_root),
-            hex::encode(end_root)
-        );
-
         let rd_addr = reg_addr(self.dec_insn.rd);
         let rd_index = addr_to_index(rd_addr as usize);
         let rd_val = pre_tree.get_leaf(rd_index);
         add_tag(rd_val.clone(), "rd_val");
-        println!(
-            "rd={}, rd_addr={} rd_val={}",
-            self.dec_insn.rd,
-            rd_addr,
-            hex::encode(rd_val.clone())
-        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -2856,13 +2656,6 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
 
         // Value at rs1+imm will be memory address to load from.
         let lw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs1val={}, mem={} imm={}, sw_addr={}",
-            hex::encode(rs1_val.clone()),
-            mem,
-            self.dec_insn.imm,
-            lw_addr
-        );
         let lw_index = addr_to_index(lw_addr as usize);
         let lw_path = self.addr_to_merkle(lw_addr as u32);
 
@@ -2882,14 +2675,6 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
         for i in 0..8 {
             masked_val[i] = mem_val[byte_offset * 8 + i];
         }
-
-        println!(
-            "mem val={} lw_addr={}, lw_index={}, masked_val={}",
-            hex::encode(mem_val.clone()),
-            lw_addr,
-            lw_index,
-            hex::encode(masked_val.clone()),
-        );
 
         witness.push(format!("{}", witness_encode(mem_val.clone())));
 
@@ -2961,14 +2746,6 @@ impl WitnessLw {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -2998,22 +2775,10 @@ impl WitnessGenerator for crate::processor::WitnessLw {
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
 
-        println!(
-            "executing lw. pre={} post={}",
-            hex::encode(start_root),
-            hex::encode(end_root)
-        );
-
         let rd_addr = reg_addr(self.dec_insn.rd);
         let rd_index = addr_to_index(rd_addr as usize);
         let rd_val = pre_tree.get_leaf(rd_index);
         add_tag(rd_val.clone(), "rd_val");
-        println!(
-            "rd={}, rd_addr={:x} rd_val={}",
-            self.dec_insn.rd,
-            rd_addr,
-            hex::encode(rd_val.clone())
-        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -3024,16 +2789,6 @@ impl WitnessGenerator for crate::processor::WitnessLw {
 
         // Value at rs1+imm will be memory address to load from.
         let lw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs={}, rs_addr={:x}, rs1val={}, mem={:x} (i64={}) imm={}, lw_addr={:x}",
-            self.dec_insn.rs1,
-            rs1_addr,
-            hex::encode(rs1_val.clone()),
-            mem,
-            mem,
-            self.dec_insn.imm,
-            lw_addr
-        );
         let lw_index = addr_to_index(lw_addr as usize);
         let lw_path = self.addr_to_merkle(lw_addr as u32);
 
@@ -3049,13 +2804,6 @@ impl WitnessGenerator for crate::processor::WitnessLw {
         // Reveal old value of memory location in witness.
         let mem_val = pre_tree.get_leaf(lw_index);
         let mem_u32 = from_mem_repr(mem_val.clone());
-        println!(
-            "mem val={} (u32={:x}) lw_addr={}, lw_index={}",
-            hex::encode(mem_val.clone()),
-            mem_u32,
-            lw_addr,
-            lw_index,
-        );
 
         witness.push(format!("{}", cat_encode(mem_val.clone())));
 
@@ -3116,14 +2864,6 @@ impl crate::processor::WitnessSb {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -3153,23 +2893,10 @@ impl WitnessGenerator for crate::processor::WitnessSb {
         let rs2_index = addr_to_index(rs2_addr as usize);
         let rs2_val = pre_tree.get_leaf(rs2_index);
         add_tag(rs2_val.clone(), "rs2_val");
-        println!(
-            "rs2={}, rs2_addr={} rs2_val={}",
-            self.dec_insn.rs2,
-            rs2_addr,
-            hex::encode(rs2_val.clone())
-        );
 
         let start_root = pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
-
-        //        println!(
-        //            "executing store {} bits. pre={} post={}",
-        //            self.keep_bits,
-        //            hex::encode(start_root),
-        //            hex::encode(end_root)
-        //        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -3180,13 +2907,6 @@ impl WitnessGenerator for crate::processor::WitnessSb {
 
         // Value at rs1+imm will be memory address to store to.
         let sw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs1val={}, mem={} imm={}, sw_addr={}",
-            hex::encode(rs1_val.clone()),
-            mem,
-            self.dec_insn.imm,
-            sw_addr
-        );
         let sw_index = addr_to_index(sw_addr as usize);
         let sw_path = self.addr_to_merkle(sw_addr as u32);
 
@@ -3239,15 +2959,6 @@ impl WitnessGenerator for crate::processor::WitnessSb {
             masked_val[i] = rs2_val[i % 8];
         }
 
-        println!(
-            "pre_mem_val={}, masked_mem_val={} byte_offset={}, sw_addr={}, sw_index={}",
-            hex::encode(pre_mem_val.clone()),
-            hex::encode(masked_val.clone()),
-            byte_offset,
-            sw_addr,
-            sw_index,
-        );
-
         pre_tree.set_leaf(sw_index, masked_val.clone());
         pre_tree.commit();
 
@@ -3286,14 +2997,6 @@ impl crate::processor::WitnessSh {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -3323,23 +3026,10 @@ impl WitnessGenerator for crate::processor::WitnessSh {
         let rs2_index = addr_to_index(rs2_addr as usize);
         let rs2_val = pre_tree.get_leaf(rs2_index);
         add_tag(rs2_val.clone(), "rs2_val");
-        println!(
-            "rs2={}, rs2_addr={} rs2_val={}",
-            self.dec_insn.rs2,
-            rs2_addr,
-            hex::encode(rs2_val.clone())
-        );
 
         let start_root = pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
-
-        //        println!(
-        //            "executing store {} bits. pre={} post={}",
-        //            self.keep_bits,
-        //            hex::encode(start_root),
-        //            hex::encode(end_root)
-        //        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -3350,13 +3040,6 @@ impl WitnessGenerator for crate::processor::WitnessSh {
 
         // Value at rs1+imm will be memory address to store to.
         let sw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs1val={}, mem={} imm={}, sw_addr={}",
-            hex::encode(rs1_val.clone()),
-            mem,
-            self.dec_insn.imm,
-            sw_addr
-        );
         let sw_index = addr_to_index(sw_addr as usize);
         let sw_path = self.addr_to_merkle(sw_addr as u32);
 
@@ -3411,15 +3094,6 @@ impl WitnessGenerator for crate::processor::WitnessSh {
             j += 1;
         }
 
-        println!(
-            "pre_mem_val={}, masked_mem_val={} byte_offset={}, sw_addr={}, sw_index={}",
-            hex::encode(pre_mem_val.clone()),
-            hex::encode(masked_val.clone()),
-            byte_offset,
-            sw_addr,
-            sw_index,
-        );
-
         pre_tree.set_leaf(sw_index, masked_val.clone());
         pre_tree.commit();
 
@@ -3458,14 +3132,6 @@ impl crate::processor::WitnessSw {
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
-        println!(
-            "index is {:b} number of bits {} (mem_len: {:b})",
-            index, bits, self.mem_len
-        );
-        println!(
-            "BitcoinInstrictionProcessor: addr {}-> index {:b}",
-            addr, index
-        );
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -3495,22 +3161,10 @@ impl WitnessGenerator for crate::processor::WitnessSw {
         let rs2_index = addr_to_index(rs2_addr as usize);
         let rs2_val = pre_tree.get_leaf(rs2_index);
         add_tag(rs2_val.clone(), "rs2_val");
-        println!(
-            "rs2={}, rs2_addr={} rs2_val={}",
-            self.dec_insn.rs2,
-            rs2_addr,
-            hex::encode(rs2_val.clone())
-        );
 
         let start_root = pre_tree.root();
         add_tag(start_root.to_vec(), "start_root");
         add_tag(end_root.to_vec(), "end_root");
-
-        println!(
-            "executing sw. pre={} post={}",
-            hex::encode(start_root),
-            hex::encode(end_root)
-        );
 
         let rs1_addr = reg_addr(self.dec_insn.rs1);
         let rs1_index = addr_to_index(rs1_addr as usize);
@@ -3521,13 +3175,6 @@ impl WitnessGenerator for crate::processor::WitnessSw {
 
         // Value at rs1+imm will be memory address to store to.
         let sw_addr = mem as i64 + (self.dec_insn.imm as i64);
-        println!(
-            "rs1val={}, mem={} imm={}, sw_addr={}",
-            hex::encode(rs1_val.clone()),
-            mem,
-            self.dec_insn.imm,
-            sw_addr
-        );
         let sw_index = addr_to_index(sw_addr as usize);
         let sw_path = self.addr_to_merkle(sw_addr as u32);
 
@@ -3551,13 +3198,6 @@ impl WitnessGenerator for crate::processor::WitnessSw {
 
         // Reveal old value of memory location in witness.
         let pre_mem_val = pre_tree.get_leaf(sw_index);
-        println!(
-            "prememval={}, new mem val={} sw_addr={}, sw_index={}",
-            hex::encode(pre_mem_val.clone()),
-            hex::encode(rs2_val.clone()),
-            sw_addr,
-            sw_index,
-        );
 
         witness.push(format!("{}", cat_encode(pre_mem_val.clone())));
 
@@ -3722,7 +3362,6 @@ impl WitnessGenerator for crate::processor::WitnessJalr {
 
         let rs_val = from_mem_repr(rs1_val);
         let branch_pc = (rs_val as u32).wrapping_add(self.dec_insn.imm as u32);
-        println!("branch_pc={:x}", branch_pc);
         let branch_val = to_mem_repr(branch_pc);
         witness.push(format!("{}", witness_encode(branch_val.clone())));
 
@@ -3775,11 +3414,6 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -3841,11 +3475,6 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -3890,11 +3519,6 @@ impl WitnessGenerator for crate::processor::WitnessSub {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -3938,7 +3562,6 @@ impl WitnessGenerator for crate::processor::WitnessSub {
         add_tag(pre_rd_val.clone(), "pre_rd_val");
 
         let rd_val = rs1_val.wrapping_sub(rs2_val);
-        println!("rd={} = rs1={} - rs2i={}", rd_val, rs1_val, rs2_val);
         let rd_mem = to_mem_repr(rd_val);
         add_tag(rd_mem.clone(), "rd_val");
 
@@ -3955,11 +3578,6 @@ impl WitnessGenerator for crate::processor::WitnessSub {
 
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -4005,11 +3623,6 @@ impl WitnessGenerator for crate::processor::WitnessSltu {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -4073,11 +3686,6 @@ impl WitnessGenerator for crate::processor::WitnessSltu {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -4122,11 +3730,6 @@ impl WitnessGenerator for crate::processor::WitnessXor {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -4187,11 +3790,6 @@ impl WitnessGenerator for crate::processor::WitnessXor {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -4236,11 +3834,6 @@ impl WitnessGenerator for crate::processor::WitnessOr {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -4301,11 +3894,6 @@ impl WitnessGenerator for crate::processor::WitnessOr {
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
-
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
 
@@ -4350,11 +3938,6 @@ impl WitnessGenerator for crate::processor::WitnessAnd {
         let pc_addr = reg_addr(REG_MAX);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -4414,11 +3997,6 @@ impl WitnessGenerator for crate::processor::WitnessAnd {
 
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
-
-        //        println!("proof that PC is {}:", hex::encode(pc_start.clone()));
-        //        for p in start_pc_proof.clone() {
-        //            println!("{}:", hex::encode(p));
-        //        }
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
         pre_tree.commit();
@@ -4683,17 +4261,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -5084,17 +4656,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -5563,17 +5129,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -5865,17 +5425,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -5977,17 +5531,11 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
 
         add_tag(pc_start.clone(), "pc_start");
@@ -6295,15 +5843,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rd_val = to_mem_repr(res);
         //let rd_val = imm.clone();
 
-        println!(
-            "rd_val={:x} (as scriptnum={}), pc={:x} imm={:x} imm<<12={:x}",
-            res,
-            hex::encode(rd_val.clone()),
-            self.insn_pc,
-            dec_insn.imm,
-            (dec_insn.imm as u32) << 12,
-        );
-
         let mut script = push_altstack(&self.str);
 
         // Prove inclusion of new value
@@ -6368,15 +5907,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let rd_val = to_mem_repr(res as u32);
         //let rd_val = imm.clone();
-
-        println!(
-            "rd_val={:x} (as scriptnum={}), pc={:x} imm={:x} imm<<12={:x}",
-            res,
-            hex::encode(rd_val.clone()),
-            self.insn_pc,
-            dec_insn.imm,
-            (dec_insn.imm as u32) << 12,
-        );
 
         let mut script = push_altstack(&self.str);
 
@@ -6520,16 +6050,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
@@ -6752,16 +6274,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
@@ -7044,16 +6558,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
@@ -7334,16 +6840,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
@@ -7478,16 +6976,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
 
@@ -7767,16 +7257,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
 
@@ -8048,16 +7530,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("dec_insn={:?}", dec_insn);
-        println!("pc is {:b}", self.insn_pc);
-
         let pc_start = to_mem_repr(self.insn_pc);
         add_tag(pc_start.clone(), "pc_start");
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
         let pc_end = to_mem_repr(self.insn_pc + 4);
         add_tag(pc_end.clone(), "pc_end");
 
@@ -8195,11 +7669,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
-        println!(
-            "imm={:x} as int32={}, as u32={}",
-            dec_insn.imm, dec_insn.imm as i32, dec_insn.imm as u32
-        );
-
         let pc_start = to_mem_repr(self.insn_pc);
         let pc_end = to_mem_repr((self.insn_pc as i32 + dec_insn.imm) as u32);
         let imm = to_mem_repr(dec_insn.imm as u32);
@@ -8219,15 +7688,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let rd_val = to_mem_repr(res);
         //let rd_val = imm.clone();
-
-        println!(
-            "rd_val={:x} (as scriptnum={}), pc={:x} imm={:x} imm<<12={:x}",
-            res,
-            hex::encode(rd_val.clone()),
-            self.insn_pc,
-            dec_insn.imm,
-            (dec_insn.imm as u32) << 12,
-        );
 
         let mut script = push_altstack(&self.str);
 
@@ -8277,18 +7737,12 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             tags.insert(hex::encode(k), v.to_string());
         };
 
-        println!("pc is {:b}", self.insn_pc);
         let pc_addr = reg_addr(REG_MAX);
         let pc_path = self.addr_to_merkle(pc_addr);
         let pc_incl = Self::merkle_inclusion(&pc_path);
 
         let pc_start = to_script_num(self.insn_pc);
         let pc_start_mem = to_mem_repr(self.insn_pc);
-        println!(
-            "converting pc {} for script->{}",
-            hex::encode((self.insn_pc).to_le_bytes()),
-            hex::encode(pc_start.clone())
-        );
 
         let mut pc_end = to_mem_repr(self.insn_pc + 4);
         let imm = to_script_num(dec_insn.imm);
@@ -8296,12 +7750,6 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(imm.clone(), "imm");
         add_tag(pc_start.clone(), "pc_start");
         add_tag(pc_end.clone(), "pc_end");
-
-        println!(
-            "imm {:x} for script->{}",
-            dec_insn.imm,
-            hex::encode(imm.clone()),
-        );
 
         let rd_addr = reg_addr(dec_insn.rd);
         let rd_path = self.addr_to_merkle(rd_addr);
