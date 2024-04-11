@@ -1,11 +1,14 @@
+#![feature(bigint_helper_methods)]
+
 use bitcoin::script::{read_scriptint, write_scriptint};
 use fast_merkle::Tree;
 use risc0_binfmt::{MemoryImage, Program};
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
+use risc0_zkvm::serde::from_slice;
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
-use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_MAX};
+use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_A7, REG_MAX};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
@@ -38,11 +41,15 @@ fn main() {
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace = mtxs.clone();
 
+    let mut output = Vec::new();
     let env = ExecutorEnv::builder()
         .trace_callback(|e| {
             trace.lock().unwrap().push(e);
             Ok(())
         })
+        .write(&x)
+        .unwrap()
+        .stdout(&mut output)
         .build()
         .unwrap();
     let elf_contents = fs::read(file_path).unwrap();
@@ -99,9 +106,8 @@ fn main() {
             };
 
             println!("0x{:x}: {:?}", addr, opcode);
-            if opcode.major == MajorType::ECall {
-                continue;
-            }
+
+
             let mut outputter = BitcoinInstructionProcessor {
                 str: format!("# pc: {:x}\t{:?}", addr, opcode),
                 //str: format!("# pc: {:x}", addr),
@@ -141,6 +147,18 @@ fn main() {
         let y = exec.read_register(REG_A7);
         println!("end y={}", y);
     }
+    println!("output: {:?}", output);
+
+    let mut input_hasher = Sha256::new();
+    let input_mem_repr = processor::to_mem_repr(x);
+    input_hasher.update(input_mem_repr.clone());
+    let input_hash = input_hasher.finalize();
+
+    // TODO: actually take output.
+    let mut output_hasher = Sha256::new();
+    let output_mem_repr = processor::to_mem_repr(0u32);
+    output_hasher.update(output_mem_repr.clone());
+    let output_hash = output_hasher.finalize();
 
     //let zero_val = to_script_num(0u32.to_le_bytes());
     //let zero_val = 0u32.to_le_bytes();
@@ -200,8 +218,25 @@ fn main() {
                     let (mut witness, mut w_tags) =
                         desc.witness_gen.generate_witness(&mut script_tree, root);
 
-                    w_tags.extend(desc.tags.clone().into_iter());
+                    // We always add input and output to the witness.
+                    witness.push(hex::encode(input_mem_repr.clone()));
+                    witness.push(hex::encode(output_mem_repr.clone()));
 
+                    w_tags.extend(desc.tags.clone().into_iter());
+                    w_tags.insert(hex::encode(input_hash), "input_hash".to_string());
+                    w_tags.insert(
+                        hex::encode(input_mem_repr.clone()),
+                        "input_bytes".to_string(),
+                    );
+
+                    w_tags.insert(hex::encode(output_hash), "output_hash".to_string());
+
+                    w_tags.insert(
+                        hex::encode(output_mem_repr.clone()),
+                        "output_bytes".to_string(),
+                    );
+
+                    //    if pcc == 0x143bb8 {
                     let pc_str = format!("{:05x}", pcc);
                     let witness_file_name =
                         format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
@@ -215,6 +250,8 @@ fn main() {
                     let mut hasher = Sha256::new();
                     let start_root = roots[roots.len() - 2];
                     let end_root = roots[roots.len() - 1];
+                    hasher.update(input_hash);
+                    hasher.update(output_hash);
                     hasher.update(start_root);
                     hasher.update(end_root);
                     let hash = hasher.finalize();
@@ -282,8 +319,7 @@ fn main() {
     println!("final root[{}]={}", ins, hex::encode(root));
 
     // Return value is found in A0 after execution.
-    let y = exec.read_register(REG_A0);
-    println!("end y={}", y);
+    //println!("end y={}", y);
 }
 
 fn guest_mem_len() -> usize {

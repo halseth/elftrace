@@ -5,7 +5,10 @@
 use crate::processor::BranchCondition::{BEQ, BGE, BGEU, BLT, BLTU, BNE};
 use bitcoin::script::{read_scriptint, write_scriptint};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
-use risc0_zkvm_platform::syscall::reg_abi::{REG_MAX, REG_ZERO};
+use risc0_zkvm_platform::syscall::ecall;
+use risc0_zkvm_platform::syscall::reg_abi::{
+    REG_A0, REG_A1, REG_A2, REG_A3, REG_A4, REG_MAX, REG_T0, REG_ZERO,
+};
 use risc0_zkvm_platform::WORD_SIZE;
 use rrs_lib::instruction_formats::{BType, IType, ITypeShamt, JType, RType, SType, UType};
 use rrs_lib::{
@@ -25,7 +28,7 @@ fn to_script_num<T: Into<i64>>(w: T) -> Vec<u8> {
 }
 
 // TODO: used 4 byte array instead?
-fn to_mem_repr(w: u32) -> Vec<u8> {
+pub fn to_mem_repr(w: u32) -> Vec<u8> {
     let bits = 32;
     //let w = u32::from_le_bytes(b);
 
@@ -53,11 +56,21 @@ fn from_mem_repr(v: Vec<u8>) -> u32 {
 
     w
 }
-
+fn push_start_altstack(script: &String) -> String {
+    format!(
+        "{}
+                # top stack elements is the input, outpout, start root, push it to altstack for later
+                OP_TOALTSTACK
+                OP_TOALTSTACK
+                OP_TOALTSTACK
+        ",
+        script,
+    )
+}
 fn push_altstack(script: &String) -> String {
     format!(
         "{}
-                # top stack elements is the start root, push it to altstack for later
+                # top stack to alt stack
                 OP_TOALTSTACK
         ",
         script,
@@ -316,6 +329,21 @@ fn push_n_altstack(n: u32) -> String {
     s
 }
 
+fn drop_n(n: u32) -> String {
+    let mut s = "".to_string();
+    for i in (0..n) {
+        s = format!(
+            "
+            {}
+            OP_DROP
+        ",
+            s
+        );
+    }
+
+    s
+}
+
 // input : [c31 c30 .. c1 c0]
 // output: [c0|c1...c30|c31]
 // altstack (if copy_to_alt): [c0... c30 c31]
@@ -553,7 +581,7 @@ fn witness_encode_bit(b: u8) -> String {
     panic!("non-bit value");
 }
 
-fn cat_encode(data: Vec<u8>) -> String {
+pub fn cat_encode(data: Vec<u8>) -> String {
     // if data.len() != 4 {
     //     panic!("not 4")
     // }
@@ -585,6 +613,139 @@ pub struct BitcoinInstructionProcessor {
 }
 
 impl BitcoinInstructionProcessor {
+    pub fn ecall(&self, input: u32) -> Script {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        add_tag(pc_start.clone(), "pc_start");
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        add_tag(pc_end.clone(), "pc_end");
+
+        let mut script = push_start_altstack(&self.str);
+
+        // a0
+        script = format!(
+            "{}
+                # old a0 in bits format on stack. Build mem repr format
+                {}
+                # new a0 on stack, check amend
+                OP_SWAP
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.amend_register(REG_A0, 32 + 1),
+        );
+
+        // convert a0 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of a0, convert it to scriptnum
+            {}
+
+            OP_TOALTSTACK # script num
+            OP_TOALTSTACK #current root
+        ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        let bits = self.num_bits();
+
+        // on stack proof of input bytes inclusion at memory index. including path bits
+        script = format!(
+            "{}
+                    # get input from alt stack, we will prove it is in the new root, at index rs1+imm
+                    OP_FROMALTSTACK # current root
+                    OP_FROMALTSTACK #a0 script num
+                    OP_FROMALTSTACK # start root
+                    OP_FROMALTSTACK #input bytes mem repr
+                    OP_DUP
+                    OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+
+        # amend path
+        {}
+                ",
+            script,
+            self.amend_path(bits, 1 + bits),
+        );
+
+        // On stack: new root
+        // alt stack: bits
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
+                {}
+        ",
+            script,
+            bits_to_scriptnum(bits),
+        );
+
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
+        script = format!(
+            "{}
+                        # now check that the number from binary equals the opcode memory address
+                        # multiply by 4
+                        OP_DUP OP_ADD
+                        OP_DUP OP_ADD
+
+                        # add address offset.
+                        {} OP_ADD
+
+                        # get from alt stack
+                        OP_FROMALTSTACK # current
+                        OP_FROMALTSTACK # script num
+                        OP_SWAP
+                        OP_TOALTSTACK
+                        OP_EQUALVERIFY
+                    ",
+            script,
+            hex::encode(offset.clone()),
+        );
+        add_tag(offset.clone(), "address offset");
+
+        // new root on stack.
+        script = push_altstack(&script);
+
+        // a1
+        script = format!(
+            "{}
+                # old and new a1 in cat format on stack.  amend register.
+                {}
+                ",
+            script,
+            self.amend_register(REG_A1, 1),
+        );
+
+        // new root on stack.
+        script = push_altstack(&script);
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 4);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessEcall {
+                insn_pc: self.insn_pc,
+                input: input,
+                start_addr: self.start_addr,
+                mem_len: self.mem_len,
+            }),
+            tags,
+        }
+    }
+
     fn num_bits(&self) -> u32 {
         32 - self.mem_len.leading_zeros() - 1
     }
@@ -677,8 +838,9 @@ impl BitcoinInstructionProcessor {
     }
 
     // checks start and end state againsst input commitment
-    // stack: <end root>
-    // altstack: <start root> at pos [root_pos-1]
+    // commitment: sha(sha(input)|sha(output)|start_root|end_root)
+    // stack: <input> <output> <end root>
+    // altstack: <output> <input> <start root> at pos [root_pos-1]
     // NOTE: everything else on the alt stack will be dropped, as this is expected to be the last part of the script.
     // output:
     // stack: OP_1
@@ -695,10 +857,25 @@ impl BitcoinInstructionProcessor {
 
         format!(
             "{}
-       # check input commitment
-       OP_FROMALTSTACK
+
+        OP_FROMALTSTACK # start_root
+
+        # start_root|end_root
         OP_SWAP
         OP_CAT
+
+        # sha(input)|sha(output]
+        OP_FROMALTSTACK # input
+        OP_SHA256
+        OP_FROMALTSTACK # output
+        OP_SHA256
+        OP_CAT
+
+       # sha(input)|sha(output)|start_root|end_root
+        OP_SWAP
+        OP_CAT
+
+        # check input commitment
         OP_SHA256
         OP_0 # index
         OP_0 # nums key
@@ -1055,7 +1232,7 @@ OP_DUP
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -3387,6 +3564,228 @@ impl WitnessGenerator for crate::processor::WitnessJalr {
     }
 }
 
+fn load_string(tree: &mut fast_merkle::Tree, mut addr: u32) -> String {
+    // tracing::trace!("load_string: 0x{addr:08x}");
+    let mut s: Vec<u8> = Vec::new();
+    loop {
+        let index = addr_to_index(addr as usize);
+        let byte_offset = byte_offset(addr as usize);
+        let mem_val = tree.get_leaf(index);
+        let word = from_mem_repr(mem_val);
+        let bytes = word.to_le_bytes();
+
+        let byte = bytes[byte_offset];
+
+        if byte == 0 {
+            break;
+        }
+        s.push(byte);
+        addr += 1;
+    }
+    String::from_utf8(s).unwrap()
+}
+
+fn load_words(tree: &mut fast_merkle::Tree, mut addr: u32, n: usize, w: &mut [u32]) -> String {
+    // tracing::trace!("load_string: 0x{addr:08x}");
+    let mut s: Vec<u8> = Vec::new();
+    loop {
+        let index = addr_to_index(addr as usize);
+        let byte_offset = byte_offset(addr as usize);
+        let mem_val = tree.get_leaf(index);
+        let word = from_mem_repr(mem_val);
+        let bytes = word.to_le_bytes();
+
+        let byte = bytes[byte_offset];
+
+        if byte == 0 {
+            break;
+        }
+        s.push(byte);
+        addr += 1;
+    }
+    String::from_utf8(s).unwrap()
+}
+
+struct WitnessEcall {
+    insn_pc: u32,
+    input: u32,
+    start_addr: u32,
+    mem_len: u32,
+}
+impl crate::processor::WitnessEcall {
+    fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
+        let index = (addr - self.start_addr) / WORD_SIZE as u32;
+
+        // TODO: why minus 1?
+        let bits = 32 - self.mem_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            v.push(b != 0);
+        }
+
+        v
+    }
+}
+
+impl WitnessGenerator for crate::processor::WitnessEcall {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let t0_addr = reg_addr(REG_T0);
+        let t0_index = addr_to_index(t0_addr as usize);
+        let t0_val = pre_tree.get_leaf(t0_index);
+        let t0_word = from_mem_repr(t0_val);
+
+        match t0_word {
+            ecall::HALT => todo!(),
+            ecall::INPUT => todo!(),
+            ecall::SOFTWARE => {}
+            ecall::SHA => todo!(),
+            ecall::BIGINT => todo!(),
+            ecall => panic!("Unknown ecall {ecall:?}"),
+        }
+
+        let a0_addr = reg_addr(REG_A0);
+        let a0_index = addr_to_index(a0_addr as usize);
+        let a0_val = pre_tree.get_leaf(a0_index);
+        add_tag(a0_val.clone(), "a0_val");
+
+        let write_addr = from_mem_repr(a0_val.clone());
+        let write_index = addr_to_index(write_addr as usize);
+        let write_path = self.addr_to_merkle(write_addr as u32);
+
+        let a1_addr = reg_addr(REG_A1);
+        let a1_index = addr_to_index(a1_addr as usize);
+        let a1_val = pre_tree.get_leaf(a1_index);
+        let n_words_write = from_mem_repr(a1_val.clone());
+
+        let a2_addr = reg_addr(REG_A2);
+        let a2_index = addr_to_index(a2_addr as usize);
+        let a2_val = pre_tree.get_leaf(a2_index);
+
+        let a3_addr = reg_addr(REG_A3);
+        let a3_index = addr_to_index(a3_addr as usize);
+        let a3_val = pre_tree.get_leaf(a3_index);
+        let fd = from_mem_repr(a3_val);
+
+        let a4_addr = reg_addr(REG_A4);
+        let a4_index = addr_to_index(a4_addr as usize);
+        let a4_val = pre_tree.get_leaf(a4_index);
+        let n_bytes_read = from_mem_repr(a4_val);
+
+        let syscall_name = load_string(pre_tree, a2_addr);
+        println!("ecall name: {}", syscall_name);
+
+        if n_words_write != 1 {
+            panic!("excpected single word write");
+        }
+        if n_bytes_read != 4 {
+            panic!("excpected 4 byte read");
+        }
+
+        let input_mem = to_mem_repr(self.input);
+
+        let n_read_bytes: u32 = 4;
+        let unaligned_end = 0;
+
+        let new_a0 = n_read_bytes;
+        let to_guest_end: [u8; WORD_SIZE] = [0; WORD_SIZE];
+        let new_a1 = u32::from_le_bytes(to_guest_end);
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+        let a0_proof = pre_tree.proof(a0_index, a0_val.clone()).unwrap();
+        witness.push(format!("{}", witness_encode(a0_val.clone())));
+
+        let new_a0_mem = to_mem_repr(new_a0);
+        witness.push(format!("{}", cat_encode(new_a0_mem.clone())));
+        add_tag(new_a0_mem.clone(), "new_a0_val");
+
+        for p in a0_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(a0_index, new_a0_mem.clone());
+        pre_tree.commit();
+
+        // Reveal old value of memory location in witness.
+        let pre_mem_val = pre_tree.get_leaf(write_index);
+        witness.push(format!("{}", cat_encode(pre_mem_val.clone())));
+
+        let write_proof = pre_tree.proof(write_index, pre_mem_val.clone()).unwrap();
+
+        for (i, b) in write_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = write_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(write_index, input_mem.clone());
+        pre_tree.commit();
+
+        let new_a1_mem = to_mem_repr(new_a1);
+        witness.push(format!("{}", cat_encode(new_a1_mem.clone())));
+        add_tag(new_a1_mem.clone(), "new_a1_val");
+
+        let a1_proof = pre_tree.proof(a1_index, a1_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(a1_val.clone())));
+        for p in a1_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(a1_index, new_a1_mem.clone());
+        pre_tree.commit();
+
+        // TODO: prove new register
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
 struct WitnessAdd {
     insn_pc: u32,
     dec_insn: RType,
@@ -4054,7 +4453,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -4158,7 +4557,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -4283,7 +4682,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs2 on stack, verify against start root on alt stack.
         script = format!(
@@ -4456,7 +4855,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -4573,7 +4972,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -4678,7 +5077,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs2 on stack, verify against start root on alt stack.
         script = format!(
@@ -4854,7 +5253,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -4958,7 +5357,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs2_path = self.addr_to_merkle(rs2_addr);
         let rs2_incl = Self::merkle_inclusion(&rs2_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -5062,7 +5461,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -5147,7 +5546,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -5260,7 +5659,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -5358,7 +5757,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -5443,7 +5842,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -5549,7 +5948,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs1 on stack, verify against start root on alt stack.
         script = format!(
@@ -5667,7 +6066,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -5755,7 +6154,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // rs on stack, verify against start root on alt stack.
         script = format!(
@@ -5843,7 +6242,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rd_val = to_mem_repr(res);
         //let rd_val = imm.clone();
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // Prove inclusion of new value
         script = format!(
@@ -5908,7 +6307,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rd_val = to_mem_repr(res as u32);
         //let rd_val = imm.clone();
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // Prove inclusion of new value
         script = format!(
@@ -6056,7 +6455,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // steps
         // 1. check value rs1 from witness against start root
@@ -6280,7 +6679,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // steps
         // 1. check value rs1 from witness against start root
@@ -6564,7 +6963,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // steps
         // 1. check value rs1 from witness against start root
@@ -6846,7 +7245,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         add_tag(pc_end.clone(), "pc_end");
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // steps
         // 1. check value rs1 from witness against start root
@@ -6983,7 +7382,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // verify rs1
         script = format!(
@@ -7264,7 +7663,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // verify rs1
         script = format!(
@@ -7537,7 +7936,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         let imm = to_script_num(dec_insn.imm);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         // steps
         // 1. check value rs2 from witness against start root
@@ -7689,7 +8088,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rd_val = to_mem_repr(res);
         //let rd_val = imm.clone();
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
 
         let mut root_pos = 1;
         //h        if dec_insn.rd != REG_ZERO {
@@ -7759,7 +8158,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
         let rs1_path = self.addr_to_merkle(rs1_addr);
         let rs1_incl = Self::merkle_inclusion(&rs1_path);
 
-        let mut script = push_altstack(&self.str);
+        let mut script = push_start_altstack(&self.str);
         script = format!(
             "{}
                 # rs1 in bit format on stack. Build mem repr format.
