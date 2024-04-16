@@ -117,20 +117,24 @@ fn main() {
             };
 
             println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
-            let desc = if opcode.major == MajorType::ECall {
-                outputter.ecall(x)
+            let pc_str = format!("{:05x}", addr);
+            let v = if opcode.major == MajorType::ECall {
+                // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
+                let desc_in = outputter.ecall_read(x);
+                let mut script_file =
+                    File::create(format!("trace/pc_{}_ecall_input_script.txt", pc_str)).unwrap();
+                write!(script_file, "{}", desc_in.script).unwrap();
+                vec![desc_in, desc_out]
             } else {
-                process_instruction(&mut outputter, insn).unwrap()
+                let desc = process_instruction(&mut outputter, insn).unwrap();
+                let mut script_file =
+                    File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
+                write!(script_file, "{}", desc.script).unwrap();
+
+                vec![desc]
             };
 
-            let pc_str = format!("{:05x}", addr);
-            let script_name = format!("pc_{}_script", pc_str);
-            let mut script_file = File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
-            write!(script_file, "{}", desc.script).unwrap();
-
-            //script_map.insert(script_name, desc.script.clone());
-
-            scripts.insert(addr, desc);
+            scripts.insert(addr, v);
         }
 
         //println!("num scipts: {}", script_map.len());
@@ -205,7 +209,7 @@ fn main() {
 
                 let pcc = current_insn.0;
                 if pcc != 0 {
-                    let desc = match scripts.get(&pcc) {
+                    let v_desc = match scripts.get(&pcc) {
                         Some(d) => d,
                         None => {
                             //println!("next opcode {:x}: {:?}", *pc, opcode);
@@ -213,82 +217,93 @@ fn main() {
                             panic!("not found: {:?} ins={:x} pc={:x}", opcode, ins, pcc);
                         }
                     };
-                    let ins_str = format!("{:04x}", ins);
 
-                    let (mut witness, mut w_tags) =
-                        desc.witness_gen.generate_witness(&mut script_tree, root);
+                    for (i, desc) in v_desc.iter().enumerate() {
+                        let mut ins_str = format!("{:04x}", ins);
+                        if v_desc.len() > 0 {
+                            ins_str += format!("_{i}").as_str();
+                        }
 
-                    // We always add input and output to the witness.
-                    witness.push(hex::encode(input_mem_repr.clone()));
-                    witness.push(hex::encode(output_mem_repr.clone()));
+                        let (mut witness, mut w_tags) =
+                            desc.witness_gen.generate_witness(&mut script_tree, root);
 
-                    w_tags.extend(desc.tags.clone().into_iter());
-                    w_tags.insert(hex::encode(input_hash), "input_hash".to_string());
-                    w_tags.insert(
-                        hex::encode(input_mem_repr.clone()),
-                        "input_bytes".to_string(),
-                    );
+                        // TODO: just temp hack to indicate wrong ecall type
+                        if w_tags.len() == 0 {
+                            continue;
+                        }
 
-                    w_tags.insert(hex::encode(output_hash), "output_hash".to_string());
+                        // We always add input and output to the witness.
+                        witness.push(hex::encode(input_mem_repr.clone()));
+                        witness.push(hex::encode(output_mem_repr.clone()));
 
-                    w_tags.insert(
-                        hex::encode(output_mem_repr.clone()),
-                        "output_bytes".to_string(),
-                    );
+                        w_tags.extend(desc.tags.clone().into_iter());
+                        w_tags.insert(hex::encode(input_hash), "input_hash".to_string());
+                        w_tags.insert(
+                            hex::encode(input_mem_repr.clone()),
+                            "input_bytes".to_string(),
+                        );
 
-                    //    if pcc == 0x143bb8 {
-                    let pc_str = format!("{:05x}", pcc);
-                    let witness_file_name =
-                        format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
-                    let mut witness_file = File::create(witness_file_name.clone()).unwrap();
-                    write!(witness_file, "{}", witness.join("\n")).unwrap();
+                        w_tags.insert(hex::encode(output_hash), "output_hash".to_string());
 
-                    let tags_file =
-                        File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str))
-                            .unwrap();
+                        w_tags.insert(
+                            hex::encode(output_mem_repr.clone()),
+                            "output_bytes".to_string(),
+                        );
 
-                    let mut hasher = Sha256::new();
-                    let start_root = roots[roots.len() - 2];
-                    let end_root = roots[roots.len() - 1];
-                    hasher.update(input_hash);
-                    hasher.update(output_hash);
-                    hasher.update(start_root);
-                    hasher.update(end_root);
-                    let hash = hasher.finalize();
-                    let hash_array: [u8; 32] = hash.into();
-                    //println!(
-                    //    "h({}|{}) = {}",
-                    //    hex::encode(start_root),
-                    //    hex::encode(end_root),
-                    //    hex::encode(hash_array)
-                    //);
+                        //    if pcc == 0x143bb8 {
+                        let pc_str = format!("{:05x}", pcc);
+                        let witness_file_name =
+                            format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
+                        let mut witness_file = File::create(witness_file_name.clone()).unwrap();
+                        write!(witness_file, "{}", witness.join("\n")).unwrap();
 
-                    let mut commitfile = File::create(format!(
-                        "trace/ins_{}_pc_{}_commitment.txt",
-                        ins_str, pc_str
-                    ))
-                    .unwrap();
+                        let tags_file =
+                            File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str))
+                                .unwrap();
 
-                    let witness_str = format!("{}", witness.join("\n"));
+                        let mut hasher = Sha256::new();
+                        let start_root = roots[roots.len() - 2];
+                        let end_root = roots[roots.len() - 1];
+                        hasher.update(input_hash);
+                        hasher.update(output_hash);
+                        hasher.update(start_root);
+                        hasher.update(end_root);
+                        let hash = hasher.finalize();
+                        let hash_array: [u8; 32] = hash.into();
+                        //println!(
+                        //    "h({}|{}) = {}",
+                        //    hex::encode(start_root),
+                        //    hex::encode(end_root),
+                        //    hex::encode(hash_array)
+                        //);
 
-                    let tags_str = serde_json::to_string(&w_tags).unwrap();
-                    let commit_str = format!("{}", hex::encode(hash_array));
+                        let mut commitfile = File::create(format!(
+                            "trace/ins_{}_pc_{}_commitment.txt",
+                            ins_str, pc_str
+                        ))
+                        .unwrap();
 
-                    w_tags.insert(hex::encode(hash_array), "commitment".to_string());
+                        let witness_str = format!("{}", witness.join("\n"));
 
-                    let writer = BufWriter::new(tags_file);
-                    serde_json::to_writer_pretty(writer, &w_tags).unwrap();
+                        let tags_str = serde_json::to_string(&w_tags).unwrap();
+                        let commit_str = format!("{}", hex::encode(hash_array));
 
-                    write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
+                        w_tags.insert(hex::encode(hash_array), "commitment".to_string());
 
-                    // NEXT: add script/witness validation that will run each step.
-                    // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
+                        let writer = BufWriter::new(tags_file);
+                        serde_json::to_writer_pretty(writer, &w_tags).unwrap();
 
-                    // Start and  end root alwyas first in the witness.
-                    //let witness = vec![];
+                        write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
 
-                    // TODO: must really write also after loop ends
-                    // BUT: we should rather create witness only on demand. Start with just re-creating trace and generate witness when one wants to publish state proof.
+                        // NEXT: add script/witness validation that will run each step.
+                        // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
+
+                        // Start and  end root alwyas first in the witness.
+                        //let witness = vec![];
+
+                        // TODO: must really write also after loop ends
+                        // BUT: we should rather create witness only on demand. Start with just re-creating trace and generate witness when one wants to publish state proof.
+                    }
                 }
 
                 let r1 = hex::encode(script_tree.root());

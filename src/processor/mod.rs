@@ -4,10 +4,15 @@
 
 use crate::processor::BranchCondition::{BEQ, BGE, BGEU, BLT, BLTU, BNE};
 use bitcoin::script::{read_scriptint, write_scriptint};
+use risc0_zkvm_platform::fileno::{STDIN, STDOUT};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::ecall;
+use risc0_zkvm_platform::syscall::nr::{
+    SYS_ARGC, SYS_ARGV, SYS_CYCLE_COUNT, SYS_GETENV, SYS_LOG, SYS_PANIC, SYS_RANDOM, SYS_READ,
+    SYS_VERIFY, SYS_VERIFY_INTEGRITY, SYS_WRITE,
+};
 use risc0_zkvm_platform::syscall::reg_abi::{
-    REG_A0, REG_A1, REG_A2, REG_A3, REG_A4, REG_MAX, REG_T0, REG_ZERO,
+    REG_A0, REG_A1, REG_A2, REG_A3, REG_A4, REG_A5, REG_MAX, REG_T0, REG_ZERO,
 };
 use risc0_zkvm_platform::WORD_SIZE;
 use rrs_lib::instruction_formats::{BType, IType, ITypeShamt, JType, RType, SType, UType};
@@ -613,7 +618,7 @@ pub struct BitcoinInstructionProcessor {
 }
 
 impl BitcoinInstructionProcessor {
-    pub fn ecall(&self, input: u32) -> Script {
+    pub fn ecall_read(&self, input: u32) -> crate::processor::Script {
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
             if k.len() == 0 {
@@ -734,9 +739,9 @@ impl BitcoinInstructionProcessor {
         script = self.increment_pc(script);
         script = self.verify_commitment(script, 4);
 
-        Script {
+        crate::processor::Script {
             script,
-            witness_gen: Box::new(WitnessEcall {
+            witness_gen: Box::new(crate::processor::WitnessEcallRead {
                 insn_pc: self.insn_pc,
                 input: input,
                 start_addr: self.start_addr,
@@ -3605,14 +3610,13 @@ fn load_words(tree: &mut fast_merkle::Tree, mut addr: u32, n: usize, w: &mut [u3
     }
     String::from_utf8(s).unwrap()
 }
-
-struct WitnessEcall {
+struct WitnessEcallRead {
     insn_pc: u32,
     input: u32,
     start_addr: u32,
     mem_len: u32,
 }
-impl crate::processor::WitnessEcall {
+impl crate::processor::WitnessEcallRead {
     fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
         let index = (addr - self.start_addr) / WORD_SIZE as u32;
 
@@ -3629,7 +3633,7 @@ impl crate::processor::WitnessEcall {
     }
 }
 
-impl WitnessGenerator for crate::processor::WitnessEcall {
+impl WitnessGenerator for crate::processor::WitnessEcallRead {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
@@ -3674,10 +3678,6 @@ impl WitnessGenerator for crate::processor::WitnessEcall {
         let a0_val = pre_tree.get_leaf(a0_index);
         add_tag(a0_val.clone(), "a0_val");
 
-        let write_addr = from_mem_repr(a0_val.clone());
-        let write_index = addr_to_index(write_addr as usize);
-        let write_path = self.addr_to_merkle(write_addr as u32);
-
         let a1_addr = reg_addr(REG_A1);
         let a1_index = addr_to_index(a1_addr as usize);
         let a1_val = pre_tree.get_leaf(a1_index);
@@ -3686,6 +3686,7 @@ impl WitnessGenerator for crate::processor::WitnessEcall {
         let a2_addr = reg_addr(REG_A2);
         let a2_index = addr_to_index(a2_addr as usize);
         let a2_val = pre_tree.get_leaf(a2_index);
+        let a2_u32 = from_mem_repr(a2_val);
 
         let a3_addr = reg_addr(REG_A3);
         let a3_index = addr_to_index(a3_addr as usize);
@@ -3695,29 +3696,44 @@ impl WitnessGenerator for crate::processor::WitnessEcall {
         let a4_addr = reg_addr(REG_A4);
         let a4_index = addr_to_index(a4_addr as usize);
         let a4_val = pre_tree.get_leaf(a4_index);
-        let n_bytes_read = from_mem_repr(a4_val);
 
-        let syscall_name = load_string(pre_tree, a2_addr);
-        println!("ecall name: {}", syscall_name);
+        let syscall = load_string(pre_tree, a2_u32);
+        println!("ecall name: {}", syscall);
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+        if syscall != SYS_READ.as_str() {
+            // TODO: return error instead of empty vec
+            //panic!("Unknown syscall {syscall}")
+            return (witness.into_iter().rev().collect(), HashMap::new());
+        }
+
+        let n_bytes = from_mem_repr(a4_val);
+        let new_a0 = n_bytes;
+
+        let to_guest_end: [u8; WORD_SIZE] = [0; WORD_SIZE];
+        // TODO: actually read unaligned bytes
+        let new_a1 = u32::from_le_bytes(to_guest_end);
+
+        if fd != STDIN {
+            panic!("excpected fd stdin: {}", fd);
+        }
 
         if n_words_write != 1 {
-            panic!("excpected single word write");
+            panic!("excpected single word write: {}", n_words_write);
         }
-        if n_bytes_read != 4 {
-            panic!("excpected 4 byte read");
+        if n_bytes != 4 {
+            panic!("excpected 4 byte read: {}", n_bytes);
         }
+
+        let write_addr = from_mem_repr(a0_val.clone());
+        let write_index = addr_to_index(write_addr as usize);
+        let write_path = self.addr_to_merkle(write_addr as u32);
 
         let input_mem = to_mem_repr(self.input);
 
         let n_read_bytes: u32 = 4;
-        let unaligned_end = 0;
-
-        let new_a0 = n_read_bytes;
-        let to_guest_end: [u8; WORD_SIZE] = [0; WORD_SIZE];
-        let new_a1 = u32::from_le_bytes(to_guest_end);
-
-        // We'll reverse it later.
-        let mut witness = vec![hex::encode(start_root)];
 
         let a0_proof = pre_tree.proof(a0_index, a0_val.clone()).unwrap();
         witness.push(format!("{}", witness_encode(a0_val.clone())));
