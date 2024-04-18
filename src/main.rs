@@ -38,6 +38,10 @@ fn main() {
     let x = u32::from_str(input).unwrap();
     println!("using x={} as program input", x);
 
+    let exp_out = &args[3];
+    let exp_output= u32::from_str(exp_out).unwrap();
+    println!("using y={} as expected program output", exp_output);
+
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace = mtxs.clone();
 
@@ -125,7 +129,7 @@ fn main() {
                     File::create(format!("trace/pc_{}_ecall_input_script.txt", pc_str)).unwrap();
                 write!(script_file, "{}", desc_in.script).unwrap();
 
-                let desc_out = outputter.ecall_write(12);
+                let desc_out = outputter.ecall_write(exp_output);
                 let mut script_file =
                     File::create(format!("trace/pc_{}_ecall_output_script.txt", pc_str)).unwrap();
                 write!(script_file, "{}", desc_out.script).unwrap();
@@ -158,6 +162,11 @@ fn main() {
         println!("end y={}", y);
     }
     println!("output: {:?}", output);
+    let output_bytes: [u8; 4] = output.try_into().unwrap();
+    let actual_output = u32::from_le_bytes(output_bytes);
+    if actual_output != exp_output {
+        panic!("actual {} and expected {} output differ", actual_output, exp_output);
+    }
 
     let mut input_hasher = Sha256::new();
     let input_mem_repr = processor::to_mem_repr(x);
@@ -166,7 +175,7 @@ fn main() {
 
     // TODO: actually take output.
     let mut output_hasher = Sha256::new();
-    let output_mem_repr = processor::to_mem_repr(12);
+    let output_mem_repr = processor::to_mem_repr(exp_output);
     output_hasher.update(output_mem_repr.clone());
     let output_hash = output_hasher.finalize();
 
