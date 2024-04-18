@@ -124,6 +124,12 @@ fn main() {
                 let mut script_file =
                     File::create(format!("trace/pc_{}_ecall_input_script.txt", pc_str)).unwrap();
                 write!(script_file, "{}", desc_in.script).unwrap();
+
+                let desc_out = outputter.ecall_write(12);
+                let mut script_file =
+                    File::create(format!("trace/pc_{}_ecall_output_script.txt", pc_str)).unwrap();
+                write!(script_file, "{}", desc_out.script).unwrap();
+
                 vec![desc_in, desc_out]
             } else {
                 let desc = process_instruction(&mut outputter, insn).unwrap();
@@ -160,7 +166,7 @@ fn main() {
 
     // TODO: actually take output.
     let mut output_hasher = Sha256::new();
-    let output_mem_repr = processor::to_mem_repr(0u32);
+    let output_mem_repr = processor::to_mem_repr(12);
     output_hasher.update(output_mem_repr.clone());
     let output_hash = output_hasher.finalize();
 

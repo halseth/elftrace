@@ -751,6 +751,149 @@ impl BitcoinInstructionProcessor {
         }
     }
 
+    pub fn ecall_write(&self, output: u32) -> Script {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let pc_start = to_mem_repr(self.insn_pc);
+        add_tag(pc_start.clone(), "pc_start");
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+        add_tag(pc_end.clone(), "pc_end");
+
+        let mut script = push_start_altstack(&self.str);
+
+        // a0
+        script = format!(
+            "{}
+                # a0 is replaced by zero. old a0 on stack
+                0000000000000000000000000000000000000000000000000000000000000000
+                {}
+
+                # new root to alt stack
+                OP_TOALTSTACK
+                ",
+            script,
+            self.amend_register(REG_A0, 1),
+        );
+
+        // a1
+        script = format!(
+            "{}
+                # a1 is replaced by zero. old a1 on stack
+                0000000000000000000000000000000000000000000000000000000000000000
+                {}
+
+                # new root to alt stack
+                OP_TOALTSTACK
+                ",
+            script,
+            self.amend_register(REG_A1, 1),
+        );
+
+        // Output buffer is found in address pointed tp by a4
+        script = format!(
+            "{}
+                # a4 in bits format on stack. Build mem repr format
+                {}
+
+                # check inclusion
+                {}
+                ",
+            script,
+            cat_32_bits(true),
+            self.register_inclusion_script(REG_A4, 32 + 1),
+        );
+
+        // convert a4 bits to script num.
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of a4, convert it to scriptnum
+            {}
+
+            OP_TOALTSTACK # a4 script num
+        ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        let bits = self.num_bits();
+
+        // on stack proof of output bytes inclusion at memory index. including path bits
+        script = format!(
+            "{}
+                    # get output from alt stack, we will prove it is in the root, at index (a4)
+                    OP_FROMALTSTACK # script num
+                    OP_FROMALTSTACK # root2
+                    OP_FROMALTSTACK # root1
+                    OP_FROMALTSTACK # start root
+                    OP_FROMALTSTACK #input bytes mem repr
+                    OP_FROMALTSTACK #output bytes mem repr
+                    OP_DUP
+                    OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+                    OP_SWAP OP_TOALTSTACK
+
+        # verify memory inclusion
+        {}
+                ",
+            script,
+            self.verify_path_inclusion(bits, bits + 2),
+        );
+
+        // TODO: do arithmetics on u32le isntead?
+        script = format!(
+            "{}
+                # on alt stack is binary encoding of memory index , convert it to scriptnum
+                {}
+        ",
+            script,
+            bits_to_scriptnum(bits),
+        );
+
+        let offset = to_script_num(GUEST_MIN_MEM as u32);
+        script = format!(
+            "{}
+                        # multiply by 4
+                        OP_DUP OP_ADD
+                        OP_DUP OP_ADD
+
+                        # add address offset.
+                        {} OP_ADD
+
+                        # get a4 address from alt stack
+                        OP_FROMALTSTACK # script num
+                        OP_EQUALVERIFY
+                    ",
+            script,
+            hex::encode(offset.clone()),
+        );
+        add_tag(offset.clone(), "address offset");
+
+        // Increment pc
+        script = self.increment_pc(script);
+        script = self.verify_commitment(script, 3);
+
+        Script {
+            script,
+            witness_gen: Box::new(WitnessEcallWrite {
+                insn_pc: self.insn_pc,
+                output: output,
+                start_addr: self.start_addr,
+                mem_len: self.mem_len,
+            }),
+            tags,
+        }
+    }
+
     fn num_bits(&self) -> u32 {
         32 - self.mem_len.leading_zeros() - 1
     }
@@ -3782,6 +3925,181 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         pre_tree.commit();
 
         // TODO: prove new register
+
+        let pc_index = addr_to_index(pc_addr as usize);
+        let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
+
+        pre_tree.set_leaf(pc_index, pc_end.clone());
+        pre_tree.commit();
+
+        for p in start_pc_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let end_root_str = hex::encode(pre_tree.root());
+        let post_root = hex::encode(end_root);
+        if end_root_str != post_root {
+            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+        }
+
+        (witness.into_iter().rev().collect(), tags)
+    }
+}
+
+struct WitnessEcallWrite {
+    insn_pc: u32,
+    output: u32,
+    start_addr: u32,
+    mem_len: u32,
+}
+impl crate::processor::WitnessEcallWrite {
+    fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
+        let index = (addr - self.start_addr) / WORD_SIZE as u32;
+
+        // TODO: why minus 1?
+        let bits = 32 - self.mem_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            v.push(b != 0);
+        }
+
+        v
+    }
+}
+
+impl WitnessGenerator for crate::processor::WitnessEcallWrite {
+    fn generate_witness(
+        &self,
+        pre_tree: &mut fast_merkle::Tree,
+        end_root: [u8; 32],
+    ) -> (Vec<String>, HashMap<String, String>) {
+        let mut tags = HashMap::new();
+        let mut add_tag = |k: Vec<u8>, v: &str| {
+            if k.len() == 0 {
+                return;
+            }
+            tags.insert(hex::encode(k), v.to_string());
+        };
+
+        let start_root = pre_tree.root();
+        add_tag(start_root.to_vec(), "start_root");
+        let end_root = end_root;
+        add_tag(end_root.to_vec(), "end_root");
+
+        let pc_addr = reg_addr(REG_MAX);
+        let pc_start = to_mem_repr(self.insn_pc);
+        let pc_end = to_mem_repr(self.insn_pc + 4);
+
+        add_tag(pc_start.clone(), "pc_start");
+        add_tag(pc_end.clone(), "pc_end");
+
+        let t0_addr = reg_addr(REG_T0);
+        let t0_index = addr_to_index(t0_addr as usize);
+        let t0_val = pre_tree.get_leaf(t0_index);
+        let t0_word = from_mem_repr(t0_val);
+
+        match t0_word {
+            ecall::HALT => todo!(),
+            ecall::INPUT => todo!(),
+            ecall::SOFTWARE => {}
+            ecall::SHA => todo!(),
+            ecall::BIGINT => todo!(),
+            ecall => panic!("Unknown ecall {ecall:?}"),
+        }
+
+        let a0_addr = reg_addr(REG_A0);
+        let a0_index = addr_to_index(a0_addr as usize);
+        let a0_val = pre_tree.get_leaf(a0_index);
+        add_tag(a0_val.clone(), "a0_val");
+
+        let a1_addr = reg_addr(REG_A1);
+        let a1_index = addr_to_index(a1_addr as usize);
+        let a1_val = pre_tree.get_leaf(a1_index);
+        let n_words_write = from_mem_repr(a1_val.clone());
+
+        let a2_addr = reg_addr(REG_A2);
+        let a2_index = addr_to_index(a2_addr as usize);
+        let a2_val = pre_tree.get_leaf(a2_index);
+        let a2_u32 = from_mem_repr(a2_val);
+
+        let a3_addr = reg_addr(REG_A3);
+        let a3_index = addr_to_index(a3_addr as usize);
+        let a3_val = pre_tree.get_leaf(a3_index);
+
+        let a4_addr = reg_addr(REG_A4);
+        let a4_index = addr_to_index(a4_addr as usize);
+        let a4_val = pre_tree.get_leaf(a4_index);
+
+        let buf_ptr = from_mem_repr(a4_val.clone());
+        let buf_ptr_index = addr_to_index(buf_ptr as usize);
+        let buf_ptr_path = self.addr_to_merkle(buf_ptr as u32);
+
+        let a5_addr = reg_addr(REG_A5);
+        let a5_index = addr_to_index(a5_addr as usize);
+        let a5_val = pre_tree.get_leaf(a5_index);
+
+        let syscall = load_string(pre_tree, a2_u32);
+        println!("ecall name: {}", syscall);
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+        if syscall != SYS_WRITE.as_str() {
+            //panic!("Unknown syscall {syscall}");
+            return (witness.into_iter().rev().collect(), HashMap::new());
+        }
+
+        let new_a0: u32 = 0;
+        let new_a1: u32 = 0;
+
+        let fd = from_mem_repr(a3_val);
+        let buf_ptr = from_mem_repr(a4_val.clone());
+        let buf_len = from_mem_repr(a5_val);
+
+        if fd != STDOUT {
+            panic!("excpected fd 1: {}", fd);
+        }
+        if buf_len != 4 {
+            panic!("excpected 4 byte write: {}", buf_len);
+        }
+
+        let a0_proof = pre_tree.proof(a0_index, a0_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(a0_val.clone())));
+        for p in a0_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(a0_index, to_mem_repr(new_a0));
+        pre_tree.commit();
+
+        let a1_proof = pre_tree.proof(a1_index, a1_val.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(a1_val.clone())));
+        for p in a1_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        pre_tree.set_leaf(a1_index, to_mem_repr(new_a1));
+        pre_tree.commit();
+
+        let a4_proof = pre_tree.proof(a4_index, a4_val.clone()).unwrap();
+        witness.push(format!("{}", witness_encode(a4_val.clone())));
+        for p in a4_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        let output_mem = to_mem_repr(self.output);
+        let buf_proof = pre_tree.proof(buf_ptr_index, output_mem.clone()).unwrap();
+        for (i, b) in buf_ptr_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = buf_proof[i];
+            witness.push(hex::encode(p))
+        }
 
         let pc_index = addr_to_index(pc_addr as usize);
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
