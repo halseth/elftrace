@@ -7,8 +7,7 @@ use risc0_binfmt::{MemoryImage, Program};
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
-use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
-use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_A7, REG_MAX};
+use risc0_zkvm_platform::syscall::reg_abi::REG_MAX;
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
@@ -93,10 +92,6 @@ fn main() {
 
     {
         let mut exec = ExecutorImpl::from_elf(env, &elf_contents).unwrap();
-
-        // Input value is inserted into A= before execution starts.
-        exec.write_register(REG_A0, x);
-
         let img = exec.memory().unwrap();
 
         println!("got starting memory: 0x{:x}", img.pc);
@@ -202,8 +197,6 @@ fn main() {
         //println!("trace: {:?}", trace.lock().unwrap().clone());
         let tn = trace.lock().unwrap().len();
         println!("trace length: {} ({:x})", tn, tn);
-        let y = exec.read_register(REG_A7);
-        println!("end y={}", y);
     }
     println!("output: {:?}", output);
     let output_bytes: [u8; 4] = output.try_into().unwrap();
@@ -391,9 +384,6 @@ fn main() {
 
     let root = mem_tree.commit();
     println!("final root[{}]={}", ins, hex::encode(root));
-
-    // Return value is found in A0 after execution.
-    //println!("end y={}", y);
 }
 
 fn guest_mem_len() -> usize {
