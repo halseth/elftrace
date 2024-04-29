@@ -14,7 +14,7 @@ risc0-zkvm-platform = { git = "https://github.com/halseth/risc0.git", rev="b98ac
 risc0-binfmt = { git = "https://github.com/halseth/risc0.git", rev="b98ac5021c1802dd594ef5fe6256bbb684263744" }
 #risc0-zkvm-platform = { version = "0.19.1" }
 #fast_merkle = {path = "/Users/johan.halseth/code/fast_merkle"}
-fast_merkle = { git = "https://github.com/halseth/fast_merkle.git" }
+fast_merkle = { git = "https://github.com/halseth/fast_merkle.git", rev="b31dbd329c38e693b494f9f22eaaa2565849cd89" }
 rrs-lib = "0.1"
 bitcoin = "0.31.0"
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
