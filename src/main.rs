@@ -1,11 +1,14 @@
+#![feature(bigint_helper_methods)]
+
 use bitcoin::script::{read_scriptint, write_scriptint};
 use fast_merkle::Tree;
 use risc0_binfmt::{MemoryImage, Program};
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
+use risc0_zkvm::serde::from_slice;
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
-use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_MAX};
+use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_A7, REG_MAX};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
@@ -35,91 +38,149 @@ fn main() {
     let x = u32::from_str(input).unwrap();
     println!("using x={} as program input", x);
 
+    let exp_out = &args[3];
+    let exp_output= u32::from_str(exp_out).unwrap();
+    println!("using y={} as expected program output", exp_output);
+
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace = mtxs.clone();
 
-    let mut builder = ExecutorEnv::builder();
-    let env = builder
+    let mut output = Vec::new();
+    let env = ExecutorEnv::builder()
         .trace_callback(|e| {
             trace.lock().unwrap().push(e);
             Ok(())
         })
+        .write(&x)
+        .unwrap()
+        .stdout(&mut output)
         .build()
         .unwrap();
     let elf_contents = fs::read(file_path).unwrap();
-    let mut exec = ExecutorImpl::from_elf(env, &elf_contents).unwrap();
-
-    // Input value is inserted into A= before execution starts.
-    exec.write_register(REG_A0, x);
+    let mem_len = guest_mem_len();
 
     // Recreated executor starting memory.
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
-    let img = exec.memory().unwrap();
-    println!("got starting memory: 0x{:x}", img.pc);
-
-    let mem_len = guest_mem_len();
 
     let mut first = true;
     let mut addr: u32 = 0;
     let mut scripts = HashMap::new();
+    let mut roots: Vec<[u8; 32]> = vec![];
 
     fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
 
-    for _addr in program.program_range.step_by(WORD_SIZE) {
-        addr = _addr;
-        if first {
-            println!("start 0x{:x}", addr);
-        }
-        first = false;
-
-        let mut bytes = [0_u8; WORD_SIZE];
-        img.load_region_in_page(addr, &mut bytes);
-
-        let insn = u32::from_le_bytes(bytes);
-
-        let opcode = OpCode::decode(insn, addr).unwrap();
-        println!("0x{:x}: {:?}", addr, opcode);
-        if opcode.major == MajorType::ECall {
-            continue;
-        }
-        let mut outputter = BitcoinInstructionProcessor {
-            str: format!("# pc: {:x}\t{:?}", addr, opcode),
-            //str: format!("# pc: {:x}", addr),
-            insn_pc: addr,
-            start_addr: GUEST_MIN_MEM as u32,
-            mem_len: mem_len as u32,
-        };
-
-        println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
-        let desc = process_instruction(&mut outputter, insn).unwrap();
-
-        let pc_str = format!("{:05x}", addr);
-        let mut script_file = File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
-        write!(script_file, "{}", desc.script).unwrap();
-
-        scripts.insert(addr, desc);
-    }
-
-    println!("end 0x{:x}", addr);
-
-    let _session = exec.run().unwrap();
-
-    println!("trace: {:?}", trace.lock().unwrap().clone());
-
-    //let zero_val = to_script_num(0u32.to_le_bytes());
-    //let zero_val = 0u32.to_le_bytes();
     let zero_val = [0u8; 32];
     let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
     let start = Instant::now();
-    let start_root = build_merkle(&mut mem_tree, &img);
-    let duration = start.elapsed();
-    println!(
-        "start root built from img={} in {:?}",
-        hex::encode(start_root),
-        duration,
-    );
 
-    let mut roots: Vec<[u8; 32]> = vec![start_root];
+    {
+        let mut exec = ExecutorImpl::from_elf(env, &elf_contents).unwrap();
+
+        // Input value is inserted into A= before execution starts.
+        exec.write_register(REG_A0, x);
+
+        let img = exec.memory().unwrap();
+
+        println!("got starting memory: 0x{:x}", img.pc);
+
+        let start_root = build_merkle(&mut mem_tree, &img);
+        let duration = start.elapsed();
+        println!(
+            "start root built from img={} in {:?}",
+            hex::encode(start_root),
+            duration,
+        );
+        roots.push(start_root);
+
+        for _addr in program.program_range.step_by(WORD_SIZE) {
+            addr = _addr;
+            if first {
+                println!("start 0x{:x}", addr);
+            }
+            first = false;
+
+            let mut bytes = [0_u8; WORD_SIZE];
+            img.load_region_in_page(addr, &mut bytes);
+
+            let insn = u32::from_le_bytes(bytes);
+
+            let opcode = match OpCode::decode(insn, addr) {
+                Ok(t) => t,
+                Err(e) => continue,
+            };
+
+            println!("0x{:x}: {:?}", addr, opcode);
+
+
+            let mut outputter = BitcoinInstructionProcessor {
+                str: format!("# pc: {:x}\t{:?}", addr, opcode),
+                //str: format!("# pc: {:x}", addr),
+                insn_pc: addr,
+                start_addr: GUEST_MIN_MEM as u32,
+                mem_len: mem_len as u32,
+            };
+
+            println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
+            let pc_str = format!("{:05x}", addr);
+            let v = if opcode.major == MajorType::ECall {
+                // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
+                let desc_in = outputter.ecall_read(x);
+                let mut script_file =
+                    File::create(format!("trace/pc_{}_ecall_input_script.txt", pc_str)).unwrap();
+                write!(script_file, "{}", desc_in.script).unwrap();
+
+                let desc_out = outputter.ecall_write(exp_output);
+                let mut script_file =
+                    File::create(format!("trace/pc_{}_ecall_output_script.txt", pc_str)).unwrap();
+                write!(script_file, "{}", desc_out.script).unwrap();
+
+                vec![desc_in, desc_out]
+            } else {
+                let desc = process_instruction(&mut outputter, insn).unwrap();
+                let mut script_file =
+                    File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
+                write!(script_file, "{}", desc.script).unwrap();
+
+                vec![desc]
+            };
+
+            scripts.insert(addr, v);
+        }
+
+        //println!("num scipts: {}", script_map.len());
+
+        println!("end 0x{:x}", addr);
+
+        let _session = exec.run().unwrap();
+
+        //let stdout: u32 = from_slice(&mut output).unwrap();
+
+        //println!("trace: {:?}", trace.lock().unwrap().clone());
+        let tn = trace.lock().unwrap().len();
+        println!("trace length: {} ({:x})", tn, tn);
+        let y = exec.read_register(REG_A7);
+        println!("end y={}", y);
+    }
+    println!("output: {:?}", output);
+    let output_bytes: [u8; 4] = output.try_into().unwrap();
+    let actual_output = u32::from_le_bytes(output_bytes);
+    if actual_output != exp_output {
+        panic!("actual {} and expected {} output differ", actual_output, exp_output);
+    }
+
+    let mut input_hasher = Sha256::new();
+    let input_mem_repr = processor::to_mem_repr(x);
+    input_hasher.update(input_mem_repr.clone());
+    let input_hash = input_hasher.finalize();
+
+    // TODO: actually take output.
+    let mut output_hasher = Sha256::new();
+    let output_mem_repr = processor::to_mem_repr(exp_output);
+    output_hasher.update(output_mem_repr.clone());
+    let output_hash = output_hasher.finalize();
+
+    //let zero_val = to_script_num(0u32.to_le_bytes());
+    //let zero_val = 0u32.to_le_bytes();
 
     // We'll keep two active merkle trees in order to prove the state of the computation before and
     // after each instruction. One is altered by the trace events, while the other is build from the bitcoin instruction processor.
@@ -135,8 +196,21 @@ fn main() {
     // we can keep script creation in here as well, to assert they are the same.
     // iterate program range, decode insn, ignore if not a real instruction otherwise create script.
     let mut ins = 0;
+    // TODO: check number of insstart to determine progress instead.
+    let mut tot_ins = 0;
+    for (_i, e) in trace.lock().unwrap().iter().enumerate() {
+        match e {
+            // A new instruction is starting.
+            TraceEvent::InstructionStart { cycle, pc, insn } => {
+                tot_ins += 1;
+            }
+            _ => {}
+        }
+    }
+
     for (_i, e) in trace.lock().unwrap().iter().enumerate() {
         //println!("iteration[{}]={:?}", i, e);
+
         match e {
             // A new instruction is starting.
             TraceEvent::InstructionStart { cycle, pc, insn } => {
@@ -146,59 +220,105 @@ fn main() {
                 let root = mem_tree.commit();
                 roots.push(root);
 
-                println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
+                //println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
 
                 let pcc = current_insn.0;
                 if pcc != 0 {
-                    let desc = scripts.get(&pcc).unwrap();
-                    let ins_str = format!("{:04x}", ins);
+                    let v_desc = match scripts.get(&pcc) {
+                        Some(d) => d,
+                        None => {
+                            //println!("next opcode {:x}: {:?}", *pc, opcode);
+                            let opcode = OpCode::decode(current_insn.1, pcc).unwrap();
+                            panic!("not found: {:?} ins={:x} pc={:x}", opcode, ins, pcc);
+                        }
+                    };
 
-                    let (witness, mut w_tags) =
-                        desc.witness_gen.generate_witness(&mut script_tree, root);
+                    for (i, desc) in v_desc.iter().enumerate() {
+                        let mut ins_str = format!("{:04x}", ins);
+                        if v_desc.len() > 0 {
+                            ins_str += format!("_{i}").as_str();
+                        }
 
-                    w_tags.extend(desc.tags.clone().into_iter());
+                        let (mut witness, mut w_tags) =
+                            desc.witness_gen.generate_witness(&mut script_tree, root);
 
-                    let pc_str = format!("{:05x}", pcc);
-                    let witness_file_name =
-                        format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
-                    let mut witness_file = File::create(witness_file_name.clone()).unwrap();
-                    write!(witness_file, "{}", witness.join("\n")).unwrap();
+                        // TODO: just temp hack to indicate wrong ecall type
+                        if w_tags.len() == 0 {
+                            continue;
+                        }
 
-                    let tags_file =
-                        File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str))
-                            .unwrap();
+                        // We always add input and output to the witness.
+                        witness.push(hex::encode(input_mem_repr.clone()));
+                        witness.push(hex::encode(output_mem_repr.clone()));
 
-                    let writer = BufWriter::new(tags_file);
-                    serde_json::to_writer_pretty(writer, &w_tags).unwrap();
+                        w_tags.extend(desc.tags.clone().into_iter());
+                        w_tags.insert(hex::encode(input_hash), "input_hash".to_string());
+                        w_tags.insert(
+                            hex::encode(input_mem_repr.clone()),
+                            "input_bytes".to_string(),
+                        );
 
-                    let mut hasher = Sha256::new();
-                    let start_root = roots[roots.len() - 2];
-                    let end_root = roots[roots.len() - 1];
-                    hasher.update(start_root);
-                    hasher.update(end_root);
-                    let hash = hasher.finalize();
-                    let hash_array: [u8; 32] = hash.into();
-                    println!(
-                        "h({}|{}) = {}",
-                        hex::encode(start_root),
-                        hex::encode(end_root),
-                        hex::encode(hash_array)
-                    );
+                        w_tags.insert(hex::encode(output_hash), "output_hash".to_string());
 
-                    let mut commitfile = File::create(format!(
-                        "trace/ins_{}_pc_{}_commitment.txt",
-                        ins_str, pc_str
-                    ))
-                    .unwrap();
+                        w_tags.insert(
+                            hex::encode(output_mem_repr.clone()),
+                            "output_bytes".to_string(),
+                        );
 
-                    write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
+                        //    if pcc == 0x143bb8 {
+                        let pc_str = format!("{:05x}", pcc);
+                        let witness_file_name =
+                            format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
+                        let mut witness_file = File::create(witness_file_name.clone()).unwrap();
+                        write!(witness_file, "{}", witness.join("\n")).unwrap();
 
-                    // NEXT: add script/witness validation that will run each step.
-                    // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
+                        let tags_file =
+                            File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str))
+                                .unwrap();
 
-                    // Start and  end root alwyas first in the witness.
-                    //let witness = vec![];
-                    println!("wrote {}", witness_file_name);
+                        let mut hasher = Sha256::new();
+                        let start_root = roots[roots.len() - 2];
+                        let end_root = roots[roots.len() - 1];
+                        hasher.update(input_hash);
+                        hasher.update(output_hash);
+                        hasher.update(start_root);
+                        hasher.update(end_root);
+                        let hash = hasher.finalize();
+                        let hash_array: [u8; 32] = hash.into();
+                        //println!(
+                        //    "h({}|{}) = {}",
+                        //    hex::encode(start_root),
+                        //    hex::encode(end_root),
+                        //    hex::encode(hash_array)
+                        //);
+
+                        let mut commitfile = File::create(format!(
+                            "trace/ins_{}_pc_{}_commitment.txt",
+                            ins_str, pc_str
+                        ))
+                        .unwrap();
+
+                        let witness_str = format!("{}", witness.join("\n"));
+
+                        let tags_str = serde_json::to_string(&w_tags).unwrap();
+                        let commit_str = format!("{}", hex::encode(hash_array));
+
+                        w_tags.insert(hex::encode(hash_array), "commitment".to_string());
+
+                        let writer = BufWriter::new(tags_file);
+                        serde_json::to_writer_pretty(writer, &w_tags).unwrap();
+
+                        write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
+
+                        // NEXT: add script/witness validation that will run each step.
+                        // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
+
+                        // Start and  end root alwyas first in the witness.
+                        //let witness = vec![];
+
+                        // TODO: must really write also after loop ends
+                        // BUT: we should rather create witness only on demand. Start with just re-creating trace and generate witness when one wants to publish state proof.
+                    }
                 }
 
                 let r1 = hex::encode(script_tree.root());
@@ -215,8 +335,6 @@ fn main() {
                 // Now that we've handled the previous instruction, set things up for processing
                 // the next.
                 current_insn = (*pc, *insn);
-
-                //prev_root = root.clone();
             }
             TraceEvent::RegisterSet { idx, value } => {
                 set_register(&mut mem_tree, *idx, *value);
@@ -231,8 +349,7 @@ fn main() {
     println!("final root[{}]={}", ins, hex::encode(root));
 
     // Return value is found in A0 after execution.
-    let y = exec.read_register(REG_A0);
-    println!("end y={}", y);
+    //println!("end y={}", y);
 }
 
 fn guest_mem_len() -> usize {
@@ -270,7 +387,7 @@ fn addr_word(fast_tree: &mut Tree, addr: usize, val: Vec<u8>) -> [u8; 4] {
     let (index, offset) = addr_to_index(addr);
     let n = val.len();
     if !(n == 1 || n == WORD_SIZE / 2 || n == WORD_SIZE) {
-        panic!("invalid word length");
+        panic!("invalid word length {}", n);
     }
     if offset + n > WORD_SIZE {
         panic!("unaligned write")
