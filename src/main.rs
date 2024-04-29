@@ -1,6 +1,7 @@
 #![feature(bigint_helper_methods)]
 
 use bitcoin::script::write_scriptint;
+use clap::Parser;
 use fast_merkle::Tree;
 use risc0_binfmt::{MemoryImage, Program};
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
@@ -11,7 +12,6 @@ use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_A7, REG_MAX};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
-use clap::Parser;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -39,8 +39,11 @@ struct Args {
     /// Expected output of the program
     #[arg(short, long)]
     output: u32,
-}
 
+    /// Write scripts to file.
+    #[arg(short, long)]
+    write: bool,
+}
 
 fn main() {
     let cargs = Args::parse();
@@ -79,6 +82,10 @@ fn main() {
     let mut roots: Vec<[u8; 32]> = vec![];
 
     fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
+    fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
+    fs::create_dir_all("trace/witness").unwrap(); // make sure the 'witness' directory exists
+    fs::create_dir_all("trace/tags").unwrap(); // make sure the 'tags' directory exists
+    fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
 
     let zero_val = [0u8; 32];
     let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
@@ -151,21 +158,32 @@ fn main() {
             let v = if opcode.major == MajorType::ECall {
                 // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
                 let desc_in = outputter.ecall_read(x);
-                let mut script_file =
-                    File::create(format!("trace/pc_{}_ecall_input_script.txt", pc_str)).unwrap();
-                write!(script_file, "{}", desc_in.script).unwrap();
+
+                if cargs.write {
+                    let mut script_file =
+                        File::create(format!("trace/script/pc_{}_ecall_input_script.txt", pc_str))
+                            .unwrap();
+                    write!(script_file, "{}", desc_in.script).unwrap();
+                }
 
                 let desc_out = outputter.ecall_write(exp_output);
-                let mut script_file =
-                    File::create(format!("trace/pc_{}_ecall_output_script.txt", pc_str)).unwrap();
-                write!(script_file, "{}", desc_out.script).unwrap();
+                if cargs.write {
+                    let mut script_file = File::create(format!(
+                        "trace/script/pc_{}_ecall_output_script.txt",
+                        pc_str
+                    ))
+                    .unwrap();
+                    write!(script_file, "{}", desc_out.script).unwrap();
+                }
 
                 vec![desc_in, desc_out]
             } else {
                 let desc = process_instruction(&mut outputter, insn).unwrap();
-                let mut script_file =
-                    File::create(format!("trace/pc_{}_script.txt", pc_str)).unwrap();
-                write!(script_file, "{}", desc.script).unwrap();
+                if cargs.write {
+                    let mut script_file =
+                        File::create(format!("trace/script/pc_{}_script.txt", pc_str)).unwrap();
+                    write!(script_file, "{}", desc.script).unwrap();
+                }
 
                 vec![desc]
             };
@@ -293,14 +311,12 @@ fn main() {
 
                         //    if pcc == 0x143bb8 {
                         let pc_str = format!("{:05x}", pcc);
-                        let witness_file_name =
-                            format!("trace/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
-                        let mut witness_file = File::create(witness_file_name.clone()).unwrap();
-                        write!(witness_file, "{}", witness.join("\n")).unwrap();
-
-                        let tags_file =
-                            File::create(format!("trace/ins_{}_pc_{}_tags.json", ins_str, pc_str))
-                                .unwrap();
+                        if cargs.write {
+                            let witness_file_name =
+                                format!("trace/witness/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
+                            let mut witness_file = File::create(witness_file_name.clone()).unwrap();
+                            write!(witness_file, "{}", witness.join("\n")).unwrap();
+                        }
 
                         let mut hasher = Sha256::new();
                         let start_root = roots[roots.len() - 2];
@@ -318,23 +334,25 @@ fn main() {
                         //    hex::encode(hash_array)
                         //);
 
-                        let mut commitfile = File::create(format!(
-                            "trace/ins_{}_pc_{}_commitment.txt",
-                            ins_str, pc_str
-                        ))
-                        .unwrap();
-
-                        let witness_str = format!("{}", witness.join("\n"));
-
-                        let tags_str = serde_json::to_string(&w_tags).unwrap();
-                        let commit_str = format!("{}", hex::encode(hash_array));
-
                         w_tags.insert(hex::encode(hash_array), "commitment".to_string());
 
-                        let writer = BufWriter::new(tags_file);
-                        serde_json::to_writer_pretty(writer, &w_tags).unwrap();
+                        if cargs.write {
+                            let tags_file = File::create(format!(
+                                "trace/tags/ins_{}_pc_{}_tags.json",
+                                ins_str, pc_str
+                            ))
+                            .unwrap();
 
-                        write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
+                            let writer = BufWriter::new(tags_file);
+                            serde_json::to_writer_pretty(writer, &w_tags).unwrap();
+
+                            let mut commitfile = File::create(format!(
+                                "trace/commitment/ins_{}_pc_{}_commitment.txt",
+                                ins_str, pc_str
+                            ))
+                            .unwrap();
+                            write!(commitfile, "{}", hex::encode(hash_array)).unwrap();
+                        }
 
                         // NEXT: add script/witness validation that will run each step.
                         // to avoid having to implement this (and OP_CCV) in rust, maybe write a Go program that can be run on the created scripts.
