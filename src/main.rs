@@ -111,6 +111,21 @@ fn main() {
 
             println!("0x{:x}: {:?}", addr, opcode);
 
+            // TODO: not yet implemented, we skip them until we see them encountered in a real
+            // execution.
+            if opcode.mnemonic == "SLTI" {
+                continue;
+            }
+            if opcode.mnemonic == "LB" {
+                continue;
+            }
+            if opcode.mnemonic == "SLT" {
+                continue;
+            }
+
+            if opcode.mnemonic == "SRA" {
+                continue;
+            }
 
             let mut outputter = BitcoinInstructionProcessor {
                 str: format!("# pc: {:x}\t{:?}", addr, opcode),
