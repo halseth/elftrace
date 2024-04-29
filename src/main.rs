@@ -39,6 +39,10 @@ struct Args {
     #[arg(short, long)]
     output: u32,
 
+    /// Skip checking whether final output matches expected output.
+    #[arg(short, long)]
+    skip_check_output: bool,
+
     /// Write scripts to file.
     #[arg(short, long)]
     write: bool,
@@ -199,13 +203,15 @@ fn main() {
         println!("trace length: {} ({:x})", tn, tn);
     }
     println!("output: {:?}", output);
-    let output_bytes: [u8; 4] = output.try_into().unwrap();
-    let actual_output = u32::from_le_bytes(output_bytes);
-    if actual_output != exp_output {
-        panic!(
-            "actual {} and expected {} output differ",
-            actual_output, exp_output
-        );
+    if !cargs.skip_check_output {
+        let output_bytes: [u8; 4] = output.try_into().unwrap();
+        let actual_output = u32::from_le_bytes(output_bytes);
+        if actual_output != exp_output {
+            panic!(
+                "actual {} and expected {} output differ",
+                actual_output, exp_output
+            );
+        }
     }
 
     let mut input_hasher = Sha256::new();
