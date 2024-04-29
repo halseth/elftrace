@@ -109,12 +109,18 @@ fn main() {
         );
         roots.push(start_root);
 
+        println!("creating program scripts");
+        let program_end = program.program_range.end;
         for _addr in program.program_range.step_by(WORD_SIZE) {
             addr = _addr;
             if first {
                 println!("start 0x{:x}", addr);
             }
             first = false;
+
+            if addr % (1024*10) == 0 {
+                println!("script {addr}/{program_end}");
+            }
 
             let mut bytes = [0_u8; WORD_SIZE];
             img.load_region_in_page(addr, &mut bytes);
@@ -219,7 +225,6 @@ fn main() {
     input_hasher.update(input_mem_repr.clone());
     let input_hash = input_hasher.finalize();
 
-    // TODO: actually take output.
     let mut output_hasher = Sha256::new();
     let output_mem_repr = processor::to_mem_repr(exp_output);
     output_hasher.update(output_mem_repr.clone());
