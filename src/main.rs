@@ -544,8 +544,8 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
 
     let end_mem = GUEST_MAX_MEM;
     for addr in (GUEST_MIN_MEM..end_mem).step_by(WORD_SIZE) {
-        if addr % (1024 * 512) == 0 {
-            println!("building addr {}/{}", addr, GUEST_MAX_MEM);
+        if addr % (2048 * 4096) == 0 {
+            println!("building merkle commitment for addr {}/{}", addr, GUEST_MAX_MEM);
         }
 
         let b = load_addr(temp_image, addr);
