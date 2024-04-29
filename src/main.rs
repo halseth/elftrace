@@ -1,10 +1,9 @@
 #![feature(bigint_helper_methods)]
 
-use bitcoin::script::{read_scriptint, write_scriptint};
+use bitcoin::script::write_scriptint;
 use fast_merkle::Tree;
 use risc0_binfmt::{MemoryImage, Program};
 use risc0_zkvm::host::server::opcode::{MajorType, OpCode};
-use risc0_zkvm::serde::from_slice;
 use risc0_zkvm::{ExecutorEnv, ExecutorImpl, TraceEvent};
 use risc0_zkvm_platform::memory::{GUEST_MAX_MEM, GUEST_MIN_MEM, SYSTEM};
 use risc0_zkvm_platform::syscall::reg_abi::REG_SP;
@@ -12,6 +11,7 @@ use risc0_zkvm_platform::syscall::reg_abi::{REG_A0, REG_A7, REG_MAX};
 use risc0_zkvm_platform::{PAGE_SIZE, WORD_SIZE};
 use rrs_lib::process_instruction;
 use sha2::{Digest, Sha256};
+use clap::Parser;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -25,21 +25,32 @@ mod processor;
 
 use processor::BitcoinInstructionProcessor;
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Program binary
+    #[arg(short, long)]
+    binary: String,
+
+    /// Input to the program
+    #[arg(short, long)]
+    input: u32,
+
+    /// Expected output of the program
+    #[arg(short, long)]
+    output: u32,
+}
+
+
 fn main() {
-    println!("Hello, world!");
-
-    let args: Vec<String> = env::args().collect();
-    dbg!(&args);
-
-    let file_path = &args[1];
+    let cargs = Args::parse();
+    let file_path = cargs.binary;
     println!("parsing file {}", file_path);
 
-    let input = &args[2];
-    let x = u32::from_str(input).unwrap();
+    let x = cargs.input;
     println!("using x={} as program input", x);
 
-    let exp_out = &args[3];
-    let exp_output= u32::from_str(exp_out).unwrap();
+    let exp_output = cargs.output;
     println!("using y={} as expected program output", exp_output);
 
     let mtxs = Arc::new(Mutex::new(Vec::new()));
