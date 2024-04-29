@@ -122,7 +122,7 @@ fn main() {
                 Err(e) => continue,
             };
 
-            println!("0x{:x}: {:?}", addr, opcode);
+            //println!("0x{:x}: {:?}", addr, opcode);
 
             // TODO: not yet implemented, we skip them until we see them encountered in a real
             // execution.
@@ -148,7 +148,7 @@ fn main() {
                 mem_len: mem_len as u32,
             };
 
-            println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
+            //println!("inserting desc at 0x{:x}: {:?}", addr, opcode);
             let pc_str = format!("{:05x}", addr);
             let v = if opcode.major == MajorType::ECall {
                 // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
@@ -202,7 +202,10 @@ fn main() {
     let output_bytes: [u8; 4] = output.try_into().unwrap();
     let actual_output = u32::from_le_bytes(output_bytes);
     if actual_output != exp_output {
-        panic!("actual {} and expected {} output differ", actual_output, exp_output);
+        panic!(
+            "actual {} and expected {} output differ",
+            actual_output, exp_output
+        );
     }
 
     let mut input_hasher = Sha256::new();
@@ -364,8 +367,8 @@ fn main() {
                     panic!("root mismatch: {} vs {}", r1, r2);
                 }
 
-                let opcode = OpCode::decode(*insn, *pc).unwrap();
-                println!("next opcode {:x}: {:?}", *pc, opcode);
+                //let opcode = OpCode::decode(*insn, *pc).unwrap();
+                //println!("next opcode {:x}: {:?}", *pc, opcode);
                 //current_opcode = Some(opcode);
                 ins += 1;
 
@@ -410,7 +413,7 @@ fn guest_mem_len() -> usize {
 }
 
 fn set_register(fast_tree: &mut Tree, reg: usize, val: u32) {
-    println!("register {} (SP={}) set to {:08x}", reg, reg == REG_SP, val);
+    //println!("register {} (SP={}) set to {:08x}", reg, reg == REG_SP, val);
     let sys_addr = SYSTEM.start();
     let addr = sys_addr + (reg * WORD_SIZE);
 
@@ -447,13 +450,13 @@ fn set_addr(fast_tree: &mut Tree, addr: usize, val: Vec<u8>) {
     //let b = val.to_le_bytes();
     let val = u32::from_le_bytes(b);
     let mem = to_mem_repr(b);
-    println!(
-        "memory addr={:x}  set to {:08x} (le={}) mem={}",
-        addr,
-        val,
-        hex::encode(b),
-        hex::encode(mem),
-    );
+    //println!(
+    //    "memory addr={:x}  set to {:08x} (le={}) mem={}",
+    //    addr,
+    //    val,
+    //    hex::encode(b),
+    //    hex::encode(mem),
+    //);
     set_commit(fast_tree, addr, b);
 }
 
@@ -535,7 +538,10 @@ fn build_merkle(fast_tree: &mut Tree, img: &MemoryImage) -> [u8; 32] {
     let end_mem = GUEST_MAX_MEM;
     for addr in (GUEST_MIN_MEM..end_mem).step_by(WORD_SIZE) {
         if addr % (2048 * 4096) == 0 {
-            println!("building merkle commitment for addr {}/{}", addr, GUEST_MAX_MEM);
+            println!(
+                "building merkle commitment for addr {}/{}",
+                addr, GUEST_MAX_MEM
+            );
         }
 
         let b = load_addr(temp_image, addr);
