@@ -33,11 +33,11 @@ struct Args {
 
     /// Input to the program
     #[arg(short, long)]
-    input: u32,
+    input: String,
 
     /// Expected output of the program
     #[arg(short, long)]
-    output: u32,
+    output: String,
 
     /// Skip checking whether final output matches expected output.
     #[arg(short, long)]
@@ -53,14 +53,35 @@ fn main() {
     let file_path = cargs.binary;
     println!("parsing file {}", file_path);
 
-    let x = cargs.input;
-    println!("using x={} as program input", x);
+    let input_bytes = hex::decode(cargs.input.clone()).unwrap();
+    //let w = u32::from_le_bytes(x.clone().try_into().unwrap());
+    println!(
+        "using x={} as program input",
+        hex::encode(input_bytes.clone())
+    );
 
     let exp_output = cargs.output;
     println!("using y={} as expected program output", exp_output);
+    let y = hex::decode(exp_output.clone()).unwrap();
 
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace = mtxs.clone();
+
+    if input_bytes.len() % 4 != 0 {
+        panic!("input must be divisible by 4");
+    }
+    if y.len() % 4 != 0 {
+        panic!("output must be divisible by 4");
+    }
+
+    let x = u32::from_le_bytes((input_bytes[..4].try_into().unwrap()));
+    let exp_output = u32::from_le_bytes((y[..4].try_into().unwrap()));
+
+    fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
+    fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
+    fs::create_dir_all("trace/witness").unwrap(); // make sure the 'witness' directory exists
+    fs::create_dir_all("trace/tags").unwrap(); // make sure the 'tags' directory exists
+    fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
 
     let mut output = Vec::new();
     let env = ExecutorEnv::builder()
@@ -76,6 +97,9 @@ fn main() {
     let elf_contents = fs::read(file_path).unwrap();
     let mem_len = guest_mem_len();
 
+    let zero_val = [0u8; 32];
+    let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
+
     // Recreated executor starting memory.
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
 
@@ -84,14 +108,8 @@ fn main() {
     let mut scripts = HashMap::new();
     let mut roots: Vec<[u8; 32]> = vec![];
 
-    fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
-    fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
-    fs::create_dir_all("trace/witness").unwrap(); // make sure the 'witness' directory exists
-    fs::create_dir_all("trace/tags").unwrap(); // make sure the 'tags' directory exists
-    fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
+    let ib: &[u8] = &input_bytes;
 
-    let zero_val = [0u8; 32];
-    let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
     let start = Instant::now();
 
     {
