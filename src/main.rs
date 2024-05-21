@@ -14,11 +14,11 @@ use sha2::{Digest, Sha256};
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Error, Read, Write};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use std::{env, fs};
+use std::{env, fs, io};
 
 mod processor;
 
@@ -46,6 +46,29 @@ struct Args {
     /// Write scripts to file.
     #[arg(short, long)]
     write: bool,
+}
+
+struct CountReader {
+    data: Vec<u32>,
+    cnt: usize,
+}
+
+impl Read for CountReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.cnt >= self.data.len() {
+            //return Err(io::ErrorKind::UnexpectedEof);
+            return Err(Error::from(io::ErrorKind::UnexpectedEof));
+        }
+
+        let w = self.data[self.cnt];
+        self.cnt += 1;
+        println!("rad cnt {}", self.cnt);
+
+        let le = w.to_le_bytes();
+        buf[..4].copy_from_slice(&le);
+
+        Ok(4)
+    }
 }
 
 fn main() {
@@ -83,14 +106,27 @@ fn main() {
     fs::create_dir_all("trace/tags").unwrap(); // make sure the 'tags' directory exists
     fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
 
+    let mut vec32 = Vec::new();
+    for i in (0..input_bytes.len()).step_by(4) {
+        let b: [u8; 4] = input_bytes[i..i + 4].try_into().unwrap();
+        let w = u32::from_le_bytes(b);
+        vec32.push(w);
+    }
+
+    let creader = CountReader {
+        data: vec32,
+        cnt: 0,
+    };
+
     let mut output = Vec::new();
     let env = ExecutorEnv::builder()
         .trace_callback(|e| {
             trace.lock().unwrap().push(e);
             Ok(())
         })
-        .write(&x)
-        .unwrap()
+        //.write(&w)
+        //.unwrap()
+        .stdin(creader)
         .stdout(&mut output)
         .build()
         .unwrap();
