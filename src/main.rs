@@ -48,9 +48,16 @@ struct Args {
     write: bool,
 }
 
+enum Event {
+    MemoryEvent { e: TraceEvent },
+
+    ReadEvent { cnt: usize },
+}
+
 struct CountReader {
     data: Vec<u32>,
     cnt: usize,
+    trace: Arc<Mutex<Vec<Event>>>,
 }
 
 impl Read for CountReader {
@@ -63,6 +70,11 @@ impl Read for CountReader {
         let w = self.data[self.cnt];
         self.cnt += 1;
         println!("rad cnt {}", self.cnt);
+
+        self.trace
+            .lock()
+            .unwrap()
+            .push(Event::ReadEvent { cnt: self.cnt });
 
         let le = w.to_le_bytes();
         buf[..4].copy_from_slice(&le);
@@ -88,7 +100,7 @@ fn main() {
     let y = hex::decode(exp_output.clone()).unwrap();
 
     let mtxs = Arc::new(Mutex::new(Vec::new()));
-    let trace = mtxs.clone();
+    let trace: Arc<Mutex<Vec<Event>>> = mtxs.clone();
 
     if input_bytes.len() % 4 != 0 {
         panic!("input must be divisible by 4");
@@ -116,12 +128,13 @@ fn main() {
     let creader = CountReader {
         data: vec32,
         cnt: 0,
+        trace: trace.clone(),
     };
 
     let mut output = Vec::new();
     let env = ExecutorEnv::builder()
         .trace_callback(|e| {
-            trace.lock().unwrap().push(e);
+            trace.lock().unwrap().push(Event::MemoryEvent { e });
             Ok(())
         })
         //.write(&w)
@@ -303,18 +316,32 @@ fn main() {
     let mut ins = 0;
     // TODO: check number of insstart to determine progress instead.
     let mut tot_ins = 0;
-    for (_i, e) in trace.lock().unwrap().iter().enumerate() {
-        match e {
-            // A new instruction is starting.
-            TraceEvent::InstructionStart { cycle, pc, insn } => {
-                tot_ins += 1;
+    let mut tot_reads = 0;
+    for (_i, ev) in trace.lock().unwrap().iter().enumerate() {
+        match ev {
+            Event::MemoryEvent { e } => match e {
+                TraceEvent::InstructionStart { cycle, pc, insn } => {
+                    tot_ins += 1;
+                }
+                _ => {}
+            },
+            Event::ReadEvent { cnt } => {
+                tot_reads += 1;
             }
-            _ => {}
         }
     }
 
-    for (_i, e) in trace.lock().unwrap().iter().enumerate() {
+    println!("tot_ins={} tot_reads={}", tot_ins, tot_reads);
+
+    'outer: for (_i, ev) in trace.lock().unwrap().iter().enumerate() {
         //println!("iteration[{}]={:?}", i, e);
+
+        let e = match ev {
+            Event::ReadEvent { cnt } => {
+                continue 'outer;
+            }
+            Event::MemoryEvent { e } => e,
+        };
 
         match e {
             // A new instruction is starting.
