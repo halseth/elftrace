@@ -400,8 +400,12 @@ fn main() {
                             ins_str += format!("_{i}").as_str();
                         }
 
-                        let (mut witness, mut w_tags) =
-                            desc.witness_gen.generate_witness(&mut script_tree, root);
+                        let (mut witness, mut w_tags) = desc.witness_gen.generate_witness(
+                            &mut script_tree,
+                            &mut input_tree,
+                            &mut output_tree,
+                            root,
+                        );
 
                         // TODO: just temp hack to indicate wrong ecall type
                         if w_tags.len() == 0 {

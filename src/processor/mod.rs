@@ -1471,6 +1471,8 @@ pub trait WitnessGenerator {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>);
 }
@@ -1484,6 +1486,9 @@ impl WitnessGenerator for WitnessAddi {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1578,6 +1583,9 @@ impl WitnessGenerator for WitnessAndi {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1672,6 +1680,9 @@ impl WitnessGenerator for crate::processor::WitnessXori {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1750,7 +1761,10 @@ impl WitnessGenerator for crate::processor::WitnessXori {
         let end_root_str = hex::encode(pre_tree.root());
         let post_root = hex::encode(end_root);
         if end_root_str != post_root {
-            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+            panic!(
+                "end root mismatch@{:x}: {} vs {}",
+                self.insn_pc, end_root_str, post_root
+            );
         }
 
         (witness.into_iter().rev().collect(), tags)
@@ -1766,6 +1780,9 @@ impl WitnessGenerator for crate::processor::WitnessOri {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1860,6 +1877,9 @@ impl WitnessGenerator for crate::processor::WitnessSltui {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1956,6 +1976,9 @@ impl WitnessGenerator for crate::processor::WitnessSrl {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2061,6 +2084,9 @@ impl WitnessGenerator for crate::processor::WitnessSll {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2166,6 +2192,9 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2249,6 +2278,9 @@ impl WitnessGenerator for crate::processor::WitnessSrli {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2332,6 +2364,9 @@ impl WitnessGenerator for crate::processor::WitnessSrai {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2415,6 +2450,9 @@ impl WitnessGenerator for crate::processor::WitnessLui {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2482,6 +2520,9 @@ impl WitnessGenerator for crate::processor::WitnessAuipc {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2576,6 +2617,9 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2681,6 +2725,9 @@ impl WitnessGenerator for crate::processor::WitnessLh {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2819,6 +2866,9 @@ impl WitnessGenerator for crate::processor::WitnessLhu {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2953,6 +3003,9 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3086,6 +3139,9 @@ impl WitnessGenerator for crate::processor::WitnessLw {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3204,6 +3260,9 @@ impl WitnessGenerator for crate::processor::WitnessSb {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3337,6 +3396,9 @@ impl WitnessGenerator for crate::processor::WitnessSh {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3472,6 +3534,9 @@ impl WitnessGenerator for crate::processor::WitnessSw {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3572,6 +3637,9 @@ impl WitnessGenerator for crate::processor::WitnessJal {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3639,6 +3707,9 @@ impl WitnessGenerator for crate::processor::WitnessJalr {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3780,6 +3851,9 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3973,6 +4047,9 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4129,6 +4206,9 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4234,6 +4314,9 @@ impl WitnessGenerator for crate::processor::WitnessSub {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4338,6 +4421,9 @@ impl WitnessGenerator for crate::processor::WitnessSltu {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4445,6 +4531,9 @@ impl WitnessGenerator for crate::processor::WitnessXor {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4549,6 +4638,9 @@ impl WitnessGenerator for crate::processor::WitnessOr {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4653,6 +4745,9 @@ impl WitnessGenerator for crate::processor::WitnessAnd {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
