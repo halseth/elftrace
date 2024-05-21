@@ -299,6 +299,7 @@ fn main() {
 
     let mut input_tree = Tree::new_with_default(input_len, zero_val.into()).unwrap();
     let mut output_tree = Tree::new_with_default(output_len, zero_val.into()).unwrap();
+    let start_index = processor::to_mem_repr(1);
 
     for i in (0..input_bytes.len()).step_by(WORD_SIZE) {
         let w: [u8; 4] = input_bytes[i..i + WORD_SIZE].try_into().unwrap();
@@ -306,14 +307,20 @@ fn main() {
         input_tree.set_leaf(1 + i / WORD_SIZE, mem);
     }
 
+    // Start index is 1.
+    input_tree.set_leaf(0, start_index.clone());
     input_tree.commit();
 
     for i in (0..y.len()).step_by(WORD_SIZE) {
         let w: [u8; 4] = y[i..i + WORD_SIZE].try_into().unwrap();
+        let b = u32::from_le_bytes(w);
         let mem = to_mem_repr(w);
-        output_tree.set_leaf(1 + i / WORD_SIZE, mem);
+        let index = 1 + i / WORD_SIZE;
+        output_tree.set_leaf(index, mem);
     }
 
+    // Start index is 1.
+    output_tree.set_leaf(0, start_index);
     output_tree.commit();
 
     let mut input_hasher = Sha256::new();
