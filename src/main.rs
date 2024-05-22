@@ -229,7 +229,7 @@ fn main() {
             let pc_str = format!("{:05x}", addr);
             let v = if opcode.major == MajorType::ECall {
                 // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
-                let desc_in = outputter.ecall_read(x);
+                let desc_in = outputter.ecall_read();
 
                 if cargs.write {
                     let mut script_file =
@@ -238,7 +238,7 @@ fn main() {
                     write!(script_file, "{}", desc_in.script).unwrap();
                 }
 
-                let desc_out = outputter.ecall_write(exp_output);
+                let desc_out = outputter.ecall_write();
                 if cargs.write {
                     let mut script_file = File::create(format!(
                         "trace/script/pc_{}_ecall_output_script.txt",

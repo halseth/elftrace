@@ -618,7 +618,7 @@ pub struct BitcoinInstructionProcessor {
 }
 
 impl BitcoinInstructionProcessor {
-    pub fn ecall_read(&self, input: u32) -> crate::processor::Script {
+    pub fn ecall_read(&self) -> crate::processor::Script {
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
             if k.len() == 0 {
@@ -743,7 +743,6 @@ impl BitcoinInstructionProcessor {
             script,
             witness_gen: Box::new(crate::processor::WitnessEcallRead {
                 insn_pc: self.insn_pc,
-                input: input,
                 start_addr: self.start_addr,
                 mem_len: self.mem_len,
             }),
@@ -751,7 +750,7 @@ impl BitcoinInstructionProcessor {
         }
     }
 
-    pub fn ecall_write(&self, output: u32) -> Script {
+    pub fn ecall_write(&self) -> Script {
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
             if k.len() == 0 {
@@ -886,7 +885,6 @@ impl BitcoinInstructionProcessor {
             script,
             witness_gen: Box::new(WitnessEcallWrite {
                 insn_pc: self.insn_pc,
-                output: output,
                 start_addr: self.start_addr,
                 mem_len: self.mem_len,
             }),
@@ -3826,7 +3824,6 @@ fn load_words(tree: &mut fast_merkle::Tree, mut addr: u32, n: usize, w: &mut [u3
 }
 struct WitnessEcallRead {
     insn_pc: u32,
-    input: u32,
     start_addr: u32,
     mem_len: u32,
 }
@@ -3948,7 +3945,14 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         let write_index = addr_to_index(write_addr as usize);
         let write_path = self.addr_to_merkle(write_addr as u32);
 
-        let input_mem = to_mem_repr(self.input);
+        let mem_index = input_tree.get_leaf(0);
+        let index = from_mem_repr(mem_index);
+        let input_mem = input_tree.get_leaf(index as usize);
+        let val = from_mem_repr(input_mem.clone());
+
+        let next_index = to_mem_repr(index + 1);
+        input_tree.set_leaf(0, next_index);
+        input_tree.commit();
 
         let n_read_bytes: u32 = 4;
 
@@ -4022,7 +4026,6 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
 
 struct WitnessEcallWrite {
     insn_pc: u32,
-    output: u32,
     start_addr: u32,
     mem_len: u32,
 }
@@ -4166,7 +4169,17 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
             witness.push(hex::encode(p))
         }
 
-        let output_mem = to_mem_repr(self.output);
+        let mem_index = output_tree.get_leaf(0);
+        let index = from_mem_repr(mem_index);
+        let output_mem = output_tree.get_leaf(index as usize);
+        //let output_mem = to_mem_repr(1);
+        let val = from_mem_repr(output_mem.clone());
+        println!("index is {} memory is {}", index, val);
+
+        let next_index = to_mem_repr(index + 1);
+        output_tree.set_leaf(0, next_index);
+        output_tree.commit();
+
         let buf_proof = pre_tree.proof(buf_ptr_index, output_mem.clone()).unwrap();
         for (i, b) in buf_ptr_path.iter().enumerate() {
             if *b {
