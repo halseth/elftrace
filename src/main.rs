@@ -48,6 +48,7 @@ struct Args {
     write: bool,
 }
 
+#[derive(Clone)]
 enum Event {
     MemoryEvent { e: TraceEvent },
 
