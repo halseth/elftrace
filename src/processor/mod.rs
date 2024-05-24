@@ -912,6 +912,21 @@ impl BitcoinInstructionProcessor {
         v
     }
 
+    fn input_index_to_merkle(&self, index: u32) -> Vec<bool> {
+        // TODO: why minus 1?
+        let input_len: u32 = 4096;
+        let bits = 32 - input_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
+            v.push(b != 0);
+        }
+
+        v
+    }
+
     fn merkle_inclusion(path: &Vec<bool>) -> String {
         let mut scr = format!(
             "
@@ -1087,6 +1102,114 @@ impl BitcoinInstructionProcessor {
 
         let addr = reg_addr(reg);
         let path = self.addr_to_merkle(addr);
+        let incl = Self::merkle_inclusion(&path);
+
+        script = format!(
+            "{}
+            # hash new leaf
+            OP_SHA256 OP_TOALTSTACK
+
+            # hash old leaf
+            OP_SHA256
+        ",
+            script,
+        );
+
+        for right in path {
+            script = format!(
+                "{}
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack",
+                script
+            );
+
+            if !right {
+                //if right {
+                script = format!(
+                    "{}
+OP_SWAP # swap direcion
+        ",
+                    script
+                );
+            }
+
+            script = format!(
+                "{}
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        ",
+                script
+            );
+
+            if !right {
+                //if right {
+                script = format!(
+                    "{}
+OP_SWAP # swap direcion
+        ",
+                    script
+                );
+            }
+            script = format!(
+                "{}
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        ",
+                script
+            );
+        }
+
+        // On alt stack: <old root> <new root>
+        // on stack: <old root>
+
+        // get old root on top
+        script = format!(
+            "{}
+        OP_FROMALTSTACK # new root from alt stack
+        OP_SWAP
+",
+            script
+        );
+
+        for _ in (0..root_pos) {
+            script = format!(
+                "{}
+        OP_FROMALTSTACK # current element from alt stack",
+                script
+            );
+        }
+
+        script = format!(
+            "{}
+OP_DUP
+        ",
+            script
+        );
+        for _ in (0..root_pos) {
+            script = format!(
+                "{}
+        OP_SWAP OP_TOALTSTACK",
+                script
+            );
+        }
+
+        // On alt stack: <old root> <new root>
+        // on stack: <old root> <old root>
+        script = format!(
+            "{}
+OP_EQUALVERIFY # verify old root
+        ",
+            script
+        );
+
+        script
+    }
+
+    fn amend_index(&self, index: usize, root_pos: u32) -> String {
+        let mut script = format!("");
+
+        let path = self.input_index_to_merkle(index as u32);
         let incl = Self::merkle_inclusion(&path);
 
         script = format!(
@@ -3866,6 +3989,21 @@ impl crate::processor::WitnessEcallRead {
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
         for b in (0..bits).map(|n| (index >> n) & 1) {
+            v.push(b != 0);
+        }
+
+        v
+    }
+
+    fn input_index_to_merkle(&self, index: u32) -> Vec<bool> {
+        // TODO: why minus 1?
+        let input_len: u32 = 4096;
+        let bits = 32 - input_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
             v.push(b != 0);
         }
 
