@@ -68,14 +68,14 @@ impl Read for CountReader {
             return Err(Error::from(io::ErrorKind::UnexpectedEof));
         }
 
-        let w = self.data[self.cnt];
-        self.cnt += 1;
         println!("rad cnt {}", self.cnt);
-
         self.trace
             .lock()
             .unwrap()
             .push(Event::ReadEvent { cnt: self.cnt });
+
+        let w = self.data[self.cnt];
+        self.cnt += 1;
 
         let le = w.to_le_bytes();
         buf[..4].copy_from_slice(&le);
