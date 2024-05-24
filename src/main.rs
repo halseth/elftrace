@@ -156,8 +156,48 @@ fn main() {
     let mut addr: u32 = 0;
     let mut scripts = HashMap::new();
     let mut roots: Vec<[u8; 32]> = vec![];
+    let mut input_roots: Vec<[u8; 32]> = vec![];
+    let mut output_roots: Vec<[u8; 32]> = vec![];
 
-    let ib: &[u8] = &input_bytes;
+    // Fix these for now.
+    let input_len = 4096;
+    let output_len = 4096;
+
+    if input_bytes.len() > input_len {
+        panic!("too long input");
+    }
+    if exp_output_bytes.len() > output_len {
+        panic!("too long output");
+    }
+
+    let mut input_tree = Tree::new_with_default(input_len, zero_val.into()).unwrap();
+    let mut output_tree = Tree::new_with_default(output_len, zero_val.into()).unwrap();
+
+    // Start at 1.
+    let start_index = processor::to_mem_repr(1);
+
+    for i in (0..input_bytes.len()).step_by(WORD_SIZE) {
+        let w: [u8; 4] = input_bytes[i..i + WORD_SIZE].try_into().unwrap();
+        let mem = to_mem_repr(w);
+        let index = 1 + i / WORD_SIZE;
+        input_tree.set_leaf(index, mem);
+    }
+
+    // Start index is 1.
+    input_tree.set_leaf(0, start_index.clone());
+    input_tree.commit();
+
+    for i in (0..exp_output_bytes.len()).step_by(WORD_SIZE) {
+        let w: [u8; 4] = exp_output_bytes[i..i + WORD_SIZE].try_into().unwrap();
+        let b = u32::from_le_bytes(w);
+        let mem = to_mem_repr(w);
+        let index = 1 + i / WORD_SIZE;
+        output_tree.set_leaf(index, mem);
+    }
+
+    // Start index.
+    output_tree.set_leaf(0, start_index);
+    output_tree.commit();
 
     let start = Instant::now();
 
@@ -175,6 +215,8 @@ fn main() {
             duration,
         );
         roots.push(start_root);
+        input_roots.push(input_tree.root());
+        output_roots.push(output_tree.root());
 
         println!("creating program scripts");
         let program_end = program.program_range.end;
@@ -287,52 +329,6 @@ fn main() {
         }
     }
 
-    let mut input_len = input_bytes.len() + 1;
-    let mut output_len = y.len() + 1;
-    // Merkle tree implementation requires power of two.
-    while !input_len.is_power_of_two() {
-        input_len += 1;
-    }
-    while !output_len.is_power_of_two() {
-        output_len += 1;
-    }
-
-    let mut input_tree = Tree::new_with_default(input_len, zero_val.into()).unwrap();
-    let mut output_tree = Tree::new_with_default(output_len, zero_val.into()).unwrap();
-    let start_index = processor::to_mem_repr(1);
-
-    for i in (0..input_bytes.len()).step_by(WORD_SIZE) {
-        let w: [u8; 4] = input_bytes[i..i + WORD_SIZE].try_into().unwrap();
-        let mem = to_mem_repr(w);
-        input_tree.set_leaf(1 + i / WORD_SIZE, mem);
-    }
-
-    // Start index is 1.
-    input_tree.set_leaf(0, start_index.clone());
-    input_tree.commit();
-
-    for i in (0..y.len()).step_by(WORD_SIZE) {
-        let w: [u8; 4] = y[i..i + WORD_SIZE].try_into().unwrap();
-        let b = u32::from_le_bytes(w);
-        let mem = to_mem_repr(w);
-        let index = 1 + i / WORD_SIZE;
-        output_tree.set_leaf(index, mem);
-    }
-
-    // Start index is 1.
-    output_tree.set_leaf(0, start_index);
-    output_tree.commit();
-
-    let mut input_hasher = Sha256::new();
-    let input_mem_repr = processor::to_mem_repr(x);
-    input_hasher.update(input_mem_repr.clone());
-    let input_hash = input_hasher.finalize();
-
-    let mut output_hasher = Sha256::new();
-    let output_mem_repr = processor::to_mem_repr(exp_output);
-    output_hasher.update(output_mem_repr.clone());
-    let output_hash = output_hasher.finalize();
-
     //let zero_val = to_script_num(0u32.to_le_bytes());
     //let zero_val = 0u32.to_le_bytes();
 
@@ -410,7 +406,11 @@ fn main() {
                 // before this instruction is executed, hence the post-state of the previous instruction.
                 set_register(&mut mem_tree, REG_MAX, *pc);
                 let root = mem_tree.commit();
+                let input_root = input_tree.commit();
+                let output_root = output_tree.commit();
                 roots.push(root);
+                input_roots.push(input_root);
+                output_roots.push(output_root);
 
                 //println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
 
@@ -444,22 +444,26 @@ fn main() {
                         }
 
                         // We always add input and output to the witness.
-                        witness.push(hex::encode(input_mem_repr.clone()));
-                        witness.push(hex::encode(output_mem_repr.clone()));
+                        let input_start_root = input_roots[input_roots.len() - 2];
+                        let input_end_root = input_roots[input_roots.len() - 1];
+                        let output_start_root = output_roots[output_roots.len() - 2];
+                        let output_end_root = output_roots[output_roots.len() - 1];
+
+                        witness.push(hex::encode(input_start_root));
+                        witness.push(hex::encode(output_start_root));
 
                         w_tags.extend(desc.tags.clone().into_iter());
-                        w_tags.insert(hex::encode(input_hash), "input_hash".to_string());
                         w_tags.insert(
-                            hex::encode(input_mem_repr.clone()),
-                            "input_bytes".to_string(),
+                            hex::encode(input_start_root),
+                            "input_start_root".to_string(),
                         );
-
-                        w_tags.insert(hex::encode(output_hash), "output_hash".to_string());
+                        w_tags.insert(hex::encode(input_end_root), "input_end_root".to_string());
 
                         w_tags.insert(
-                            hex::encode(output_mem_repr.clone()),
-                            "output_bytes".to_string(),
+                            hex::encode(output_start_root),
+                            "output_start_root".to_string(),
                         );
+                        w_tags.insert(hex::encode(output_end_root), "output_end_root".to_string());
 
                         //    if pcc == 0x143bb8 {
                         let pc_str = format!("{:05x}", pcc);
@@ -473,8 +477,24 @@ fn main() {
                         let mut hasher = Sha256::new();
                         let start_root = roots[roots.len() - 2];
                         let end_root = roots[roots.len() - 1];
-                        hasher.update(input_hash);
-                        hasher.update(output_hash);
+
+                        let rootCat = [start_root, end_root].concat();
+                        w_tags.insert(hex::encode(rootCat), "start_root|end_root".to_string());
+                        let inputCat = [input_start_root, input_end_root].concat();
+                        w_tags.insert(
+                            hex::encode(inputCat),
+                            "input_start_root|input_end_root".to_string(),
+                        );
+                        let outputCat = [output_start_root, output_end_root].concat();
+                        w_tags.insert(
+                            hex::encode(outputCat),
+                            "output_start_root|output_end_root".to_string(),
+                        );
+
+                        hasher.update(input_start_root);
+                        hasher.update(input_end_root);
+                        hasher.update(output_start_root);
+                        hasher.update(output_end_root);
                         hasher.update(start_root);
                         hasher.update(end_root);
                         let hash = hasher.finalize();
