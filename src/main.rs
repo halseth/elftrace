@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, Read, Write};
+use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -352,16 +353,33 @@ fn main() {
     // TODO: check number of insstart to determine progress instead.
     let mut tot_ins = 0;
     let mut tot_reads = 0;
-    for (_i, ev) in trace.lock().unwrap().iter().enumerate() {
-        match ev {
-            Event::MemoryEvent { e } => match e {
-                TraceEvent::InstructionStart { cycle, pc, insn } => {
-                    tot_ins += 1;
+    {
+        let mut trace_mut = trace.lock().unwrap();
+        let trace_vec = trace_mut.deref_mut();
+        let trace_len = trace_vec.len();
+        let mut prev_read = false;
+        for i in 0..trace_len {
+            let ev = &trace_vec[i];
+            match ev {
+                Event::MemoryEvent { e } => {
+                    match e {
+                        TraceEvent::InstructionStart { cycle, pc, insn } => {
+                            tot_ins += 1;
+
+                            // If previous was a read event, swap the order, such the the
+                            // InstructionStart event goes first.
+                            if prev_read {
+                                trace_vec.swap(i - 1, i);
+                            }
+                        }
+                        _ => {}
+                    }
+                    prev_read = false;
                 }
-                _ => {}
-            },
-            Event::ReadEvent { cnt } => {
-                tot_reads += 1;
+                Event::ReadEvent { cnt } => {
+                    tot_reads += 1;
+                    prev_read = true;
+                }
             }
         }
     }
