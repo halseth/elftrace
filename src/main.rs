@@ -339,6 +339,7 @@ fn main() {
     // We'll keep two active merkle trees in order to prove the state of the computation before and
     // after each instruction. One is altered by the trace events, while the other is build from the bitcoin instruction processor.
     let mut script_tree = mem_tree.clone();
+    let mut script_input_tree = input_tree.clone();
 
     // (pc, insn)
     let mut current_insn: (u32, u32) = (0, 0);
@@ -432,7 +433,7 @@ fn main() {
 
                         let (mut witness, mut w_tags) = desc.witness_gen.generate_witness(
                             &mut script_tree,
-                            &mut input_tree,
+                            &mut script_input_tree,
                             &mut output_tree,
                             root,
                         );
@@ -520,6 +521,12 @@ fn main() {
                 let r2 = hex::encode(mem_tree.root());
                 if r1 != r2 {
                     panic!("root mismatch: {} vs {}", r1, r2);
+                }
+
+                let i1 = hex::encode(script_input_tree.root());
+                let i2 = hex::encode(input_tree.root());
+                if i1 != i2 {
+                    panic!("input root mismatch: {} vs {}", i1, i2);
                 }
 
                 //let opcode = OpCode::decode(*insn, *pc).unwrap();
