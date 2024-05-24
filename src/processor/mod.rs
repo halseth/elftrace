@@ -664,29 +664,28 @@ impl BitcoinInstructionProcessor {
 
         let bits = self.num_bits();
 
-        // on stack proof of input bytes inclusion at memory index. including path bits
+        // stack: <merkle proof> <old memory val> <input bytes>
+
+        // copy input bytes for later verification against input root.
         script = format!(
             "{}
-                    # get input from alt stack, we will prove it is in the new root, at index rs1+imm
-                    OP_FROMALTSTACK # current root
-                    OP_FROMALTSTACK #a0 script num
-                    OP_FROMALTSTACK # start root
-                    OP_FROMALTSTACK #input bytes mem repr
-                    OP_DUP
-                    OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
+                OP_DUP
+                OP_TOALTSTACK
+                ",
+            script,
+        );
 
+        script = format!(
+            "{}
         # amend path
         {}
                 ",
             script,
-            self.amend_path(bits, 1 + bits),
+            self.amend_path(bits, 2 + bits),
         );
 
         // On stack: new root
-        // alt stack: bits
+        // alt stack: bits of write index
         script = format!(
             "{}
                 # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
@@ -708,8 +707,11 @@ impl BitcoinInstructionProcessor {
                         {} OP_ADD
 
                         # get from alt stack
+                        OP_FROMALTSTACK # input bytes
                         OP_FROMALTSTACK # current
                         OP_FROMALTSTACK # script num
+                        OP_SWAP
+                        OP_TOALTSTACK
                         OP_SWAP
                         OP_TOALTSTACK
                         OP_EQUALVERIFY
@@ -723,6 +725,7 @@ impl BitcoinInstructionProcessor {
         script = push_altstack(&script);
 
         // a1
+        // todo: verify value of a1 somehow?
         script = format!(
             "{}
                 # old and new a1 in cat format on stack.  amend register.
@@ -737,7 +740,144 @@ impl BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 4);
+        script = push_altstack(&script);
+
+        // fetch input bytes from alt stack, push end root to alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK # prev root
+                OP_FROMALTSTACK # prev-1 root
+                OP_FROMALTSTACK # prev-2 root
+                OP_FROMALTSTACK # input bytes
+                OP_SWAP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+            script,
+        );
+
+        // Verify input value, push path bits to alt stack.
+        let input_bits = self.num_input_bits();
+        script = format!(
+            "{}
+            {}
+                ",
+            script,
+            self.verify_path_inclusion(input_bits, input_bits + 6),
+        );
+
+        // Get path bits, and cat them, apdding them with zeros.
+        for i in input_bits..32 {
+            script = format!(
+                "{}
+            OP_0
+                ",
+                script,
+            );
+        }
+
+        script = format!(
+            "{}
+            {}
+            {}
+                ",
+            script,
+            get_altstack(input_bits),
+            cat_32_bits(true),
+        );
+
+        // Create script num from path bits. Increment counter.
+        script = format!(
+            "{}
+            {}
+
+            OP_1ADD
+
+            OP_SWAP
+            # old counter mem rep to alt stack
+            OP_TOALTSTACK
+
+            # new script num counter
+            OP_TOALTSTACK
+                ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // Verify new counter value from bits.
+        script = format!(
+            "{}
+            # cat new counter bits
+            {}
+
+            # convert bits to scriptnum
+            {}
+
+            # get calculated new counter and check they match
+            OP_FROMALTSTACK
+            OP_EQUALVERIFY
+                ",
+            script,
+            cat_32_bits(true),
+            bits_to_scriptnum(32),
+        );
+
+        // The amend the input tree with the new incremented counter.
+        script = format!(
+            "{}
+            # old counter from alt stack
+            OP_FROMALTSTACK
+
+            # verify new counter inclusion
+            OP_SWAP
+            {}
+                ",
+            script,
+            self.amend_index(0, 6),
+        );
+
+        // on stack is new input root.
+        // get end root
+        script = format!(
+            "{}
+            OP_FROMALTSTACK
+                ",
+            script,
+        );
+
+        //copy output root, as it is unchanged.
+        let output_root_pos = 6;
+        script = format!(
+            "{}
+            {}
+            OP_DUP
+                ",
+            script,
+            get_altstack(output_root_pos),
+        );
+
+        for i in 0..output_root_pos {
+            script = format!(
+                "{}
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+                script,
+            );
+        }
+
+        // stack: input_end_root, end_root, output_end_root
+        script = format!(
+            "{}
+                OP_SWAP
+                ",
+            script,
+        );
+
+        script = self.verify_commitment(script, false, 4);
 
         crate::processor::Script {
             script,
@@ -894,6 +1034,11 @@ impl BitcoinInstructionProcessor {
 
     fn num_bits(&self) -> u32 {
         32 - self.mem_len.leading_zeros() - 1
+    }
+
+    fn num_input_bits(&self) -> u32 {
+        let input_len: u32 = 4096;
+        32 - input_len.leading_zeros() - 1
     }
 
     fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
@@ -4113,13 +4258,16 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         let write_path = self.addr_to_merkle(write_addr as u32);
 
         let mem_index = input_tree.get_leaf(0);
-        let index = from_mem_repr(mem_index);
-        let input_mem = input_tree.get_leaf(index as usize);
+        let input_index = from_mem_repr(mem_index) as usize;
+        let input_path = self.input_index_to_merkle(input_index as u32);
+        let input_mem = input_tree.get_leaf(input_index);
+        println!(
+            "input index {} = {}",
+            input_index,
+            hex::encode(input_mem.clone())
+        );
+        add_tag(input_mem.clone(), "input_mem");
         let val = from_mem_repr(input_mem.clone());
-
-        let next_index = to_mem_repr(index + 1);
-        input_tree.set_leaf(0, next_index);
-        input_tree.commit();
 
         let n_read_bytes: u32 = 4;
 
@@ -4135,10 +4283,12 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         }
 
         pre_tree.set_leaf(a0_index, new_a0_mem.clone());
+        println!("setting a0 {:x}={}", a0_addr, hex::encode(new_a0_mem),);
         pre_tree.commit();
 
         // Reveal old value of memory location in witness.
         let pre_mem_val = pre_tree.get_leaf(write_index);
+        witness.push(format!("{}", cat_encode(input_mem.clone())));
         witness.push(format!("{}", cat_encode(pre_mem_val.clone())));
 
         let write_proof = pre_tree.proof(write_index, pre_mem_val.clone()).unwrap();
@@ -4154,6 +4304,11 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         }
 
         pre_tree.set_leaf(write_index, input_mem.clone());
+        println!(
+            "setting writeaddr {:x}={}",
+            write_addr,
+            hex::encode(input_mem.clone()),
+        );
         pre_tree.commit();
 
         let new_a1_mem = to_mem_repr(new_a1);
@@ -4167,6 +4322,7 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         }
 
         pre_tree.set_leaf(a1_index, new_a1_mem.clone());
+        println!("setting a1 {:x}= {}", a1_addr, hex::encode(new_a1_mem),);
         pre_tree.commit();
 
         // TODO: prove new register
@@ -4175,11 +4331,36 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
+        println!("setting pc {:x}={}", pc_addr, hex::encode(pc_end),);
         pre_tree.commit();
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
+
+        // Prove input change
+        let input_proof = input_tree.proof(input_index, input_mem.clone()).unwrap();
+        for (i, b) in input_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = input_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        // Prove new counter
+        let current_cnt = to_mem_repr(input_index as u32);
+        let cnt_proof = input_tree.proof(0, current_cnt.clone()).unwrap();
+        let next_cnt = to_mem_repr(input_index as u32 + 1);
+        witness.push(format!("{}", witness_encode(next_cnt.clone())));
+        for p in cnt_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        input_tree.set_leaf(0, next_cnt);
+        input_tree.commit();
 
         let end_root_str = hex::encode(pre_tree.root());
         let post_root = hex::encode(end_root);
