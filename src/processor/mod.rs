@@ -879,7 +879,7 @@ impl BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 3);
+        script = self.verify_commitment(script, true, 3);
 
         Script {
             script,
@@ -984,18 +984,39 @@ impl BitcoinInstructionProcessor {
     }
 
     // checks start and end state againsst input commitment
-    // commitment: sha(sha(input)|sha(output)|start_root|end_root)
-    // stack: <input> <output> <end root>
-    // altstack: <output> <input> <start root> at pos [root_pos-1]
+    // commitment: sha(input_start_root|input_end_root|output_start_root|output_end_root|start_root|end_root)
+    // stack: <input_end_root> <output_end_root> <end root>
+    // altstack: <output_start_root> <input_start_root> <start root> at pos [root_pos-1]
     // NOTE: everything else on the alt stack will be dropped, as this is expected to be the last part of the script.
     // output:
+    // NOTE: if no_io=false, it will assume input/output end roots are not on the stack.
     // stack: OP_1
-    fn verify_commitment(&self, script: String, root_pos: u32) -> String {
+    fn verify_commitment(&self, script: String, no_io: bool, root_pos: u32) -> String {
         let mut script = script;
         for _ in (0..root_pos - 1) {
             script = format!(
                 "{}
         OP_FROMALTSTACK OP_DROP
+",
+                script,
+            );
+        }
+
+        if no_io {
+            script = format!(
+                "{}
+                OP_FROMALTSTACK
+                OP_FROMALTSTACK
+                OP_FROMALTSTACK
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_ROT
+                OP_TOALTSTACK
+                OP_ROT
 ",
                 script,
             );
@@ -1008,18 +1029,26 @@ impl BitcoinInstructionProcessor {
 
         # start_root|end_root
         OP_SWAP
-        OP_CAT
+        OP_CAT # start_root|end_root
 
-        # sha(input)|sha(output]
-        OP_FROMALTSTACK # input
-        OP_SHA256
-        OP_FROMALTSTACK # output
-        OP_SHA256
-        OP_CAT
+        # input_end_root on top
+        OP_ROT
 
-       # sha(input)|sha(output)|start_root|end_root
+        OP_FROMALTSTACK # input_start_root
         OP_SWAP
-        OP_CAT
+        OP_CAT # input_start|input_end
+
+        # output_end_root on top
+        OP_ROT
+
+        OP_FROMALTSTACK # output_start_root
+        OP_SWAP
+
+        OP_CAT # output_start_root|output_end_root
+
+        OP_CAT # input_start_root|input_end_root|output_startroot|output_end_root
+        OP_SWAP
+        OP_CAT # input_start_root|input_end_root|output_startroot|output_end_root|start_root|end_root
 
         # check input commitment
         OP_SHA256
@@ -1459,7 +1488,7 @@ OP_DUP
             self.amend_register(REG_MAX, 1),
         );
 
-        script = self.verify_commitment(script, 1);
+        script = self.verify_commitment(script, true, 1);
 
         (script, tags)
     }
@@ -4957,7 +4986,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5081,7 +5110,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5251,7 +5280,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -5372,7 +5401,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5476,7 +5505,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5649,7 +5678,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -5757,7 +5786,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5861,7 +5890,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5949,7 +5978,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6055,7 +6084,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6157,7 +6186,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6245,7 +6274,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6351,7 +6380,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6466,7 +6495,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6554,7 +6583,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6642,7 +6671,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6704,7 +6733,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6771,7 +6800,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7091,7 +7120,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7375,7 +7404,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7657,7 +7686,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7793,7 +7822,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8075,7 +8104,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8348,7 +8377,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8483,7 +8512,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8556,7 +8585,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Set new pc to pc + imm;
         script = self.add_pc(script, dec_insn.imm);
-        script = self.verify_commitment(script, root_pos);
+        script = self.verify_commitment(script, true, root_pos);
 
         Script {
             script: script,
@@ -8687,7 +8716,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script_encode_const(dec_insn.imm),
         );
 
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
