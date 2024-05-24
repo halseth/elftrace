@@ -387,10 +387,16 @@ fn main() {
     println!("tot_ins={} tot_reads={}", tot_ins, tot_reads);
 
     'outer: for (_i, ev) in trace.lock().unwrap().iter().enumerate() {
-        //println!("iteration[{}]={:?}", i, e);
-
         let e = match ev {
             Event::ReadEvent { cnt } => {
+                // Read event cnt was executed, increment counter.
+                let next_cnt = *cnt as u32 + 1;
+
+                // Since the next index to read is what we store, and indexes start at 1, it will
+                // be +1 the next counter.
+                let next_index = next_cnt + 1;
+                let mem_index = processor::to_mem_repr(next_index);
+                input_tree.set_leaf(0, mem_index);
                 continue 'outer;
             }
             Event::MemoryEvent { e } => e,
