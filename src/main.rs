@@ -90,15 +90,16 @@ fn main() {
     println!("parsing file {}", file_path);
 
     let input_bytes = hex::decode(cargs.input.clone()).unwrap();
-    //let w = u32::from_le_bytes(x.clone().try_into().unwrap());
     println!(
         "using x={} as program input",
         hex::encode(input_bytes.clone())
     );
 
-    let exp_output = cargs.output;
-    println!("using y={} as expected program output", exp_output);
-    let y = hex::decode(exp_output.clone()).unwrap();
+    let exp_output_bytes = hex::decode(cargs.output.clone()).unwrap();
+    println!(
+        "using y={} as expected program output",
+        hex::encode(exp_output_bytes.clone())
+    );
 
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace: Arc<Mutex<Vec<Event>>> = mtxs.clone();
@@ -106,12 +107,9 @@ fn main() {
     if input_bytes.len() % 4 != 0 {
         panic!("input must be divisible by 4");
     }
-    if y.len() % 4 != 0 {
+    if exp_output_bytes.len() % 4 != 0 {
         panic!("output must be divisible by 4");
     }
-
-    let x = u32::from_le_bytes((input_bytes[..4].try_into().unwrap()));
-    let exp_output = u32::from_le_bytes((y[..4].try_into().unwrap()));
 
     fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
     fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
@@ -186,7 +184,7 @@ fn main() {
             }
             first = false;
 
-            if addr % (1024*10) == 0 {
+            if addr % (1024 * 10) == 0 {
                 println!("script {addr}/{program_end}");
             }
 
@@ -276,10 +274,10 @@ fn main() {
         let tn = trace.lock().unwrap().len();
         println!("trace length: {} ({:x})", tn, tn);
     }
-    println!("output: {:?}", output);
+    println!("output: {:?}", output.clone());
     if !cargs.skip_check_output {
-        let output_bytes: [u8; 4] = output.try_into().unwrap();
-        let actual_output = u32::from_le_bytes(output_bytes);
+        let actual_output = hex::encode(output.clone());
+        let exp_output = hex::encode(exp_output_bytes.clone());
         if actual_output != exp_output {
             panic!(
                 "actual {} and expected {} output differ",
