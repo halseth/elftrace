@@ -4452,6 +4452,17 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         let a2_val = pre_tree.get_leaf(a2_index);
         let a2_u32 = from_mem_repr(a2_val);
 
+        let syscall = load_string(pre_tree, a2_u32);
+        //println!("ecall name: {}", syscall);
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+        if syscall != SYS_WRITE.as_str() {
+            //panic!("Unknown syscall {syscall}");
+            return (witness.into_iter().rev().collect(), HashMap::new());
+        }
+
         let a3_addr = reg_addr(REG_A3);
         let a3_index = addr_to_index(a3_addr as usize);
         let a3_val = pre_tree.get_leaf(a3_index);
@@ -4467,17 +4478,6 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         let a5_addr = reg_addr(REG_A5);
         let a5_index = addr_to_index(a5_addr as usize);
         let a5_val = pre_tree.get_leaf(a5_index);
-
-        let syscall = load_string(pre_tree, a2_u32);
-        println!("ecall name: {}", syscall);
-
-        // We'll reverse it later.
-        let mut witness = vec![hex::encode(start_root)];
-
-        if syscall != SYS_WRITE.as_str() {
-            //panic!("Unknown syscall {syscall}");
-            return (witness.into_iter().rev().collect(), HashMap::new());
-        }
 
         let new_a0: u32 = 0;
         let new_a1: u32 = 0;
