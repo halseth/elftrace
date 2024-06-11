@@ -64,7 +64,7 @@ struct CountReader {
 }
 
 impl Read for CountReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.cnt >= self.data.len() {
             //return Err(io::ErrorKind::UnexpectedEof);
             return Err(Error::from(io::ErrorKind::UnexpectedEof));
