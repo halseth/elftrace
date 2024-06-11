@@ -934,7 +934,7 @@ impl BitcoinInstructionProcessor {
             self.amend_register(REG_A1, 1),
         );
 
-        // Output buffer is found in address pointed tp by a4
+        // Output bytes is found in address pointed tp by a4
         script = format!(
             "{}
                 # a4 in bits format on stack. Build mem repr format
@@ -963,29 +963,18 @@ impl BitcoinInstructionProcessor {
 
         let bits = self.num_bits();
 
-        // on stack proof of output bytes inclusion at memory index. including path bits
+        // on stack output bytes and proof of output bytes inclusion at memory index, including path bits
         script = format!(
             "{}
-                    # get output from alt stack, we will prove it is in the root, at index (a4)
-                    OP_FROMALTSTACK # script num
-                    OP_FROMALTSTACK # root2
-                    OP_FROMALTSTACK # root1
-                    OP_FROMALTSTACK # start root
-                    OP_FROMALTSTACK #input bytes mem repr
-                    OP_FROMALTSTACK #output bytes mem repr
-                    OP_DUP
-                    OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
+            # copy output bytes for later inclusiong check
+            OP_DUP
+            OP_TOALTSTACK
 
         # verify memory inclusion
         {}
                 ",
             script,
-            self.verify_path_inclusion(bits, bits + 2),
+            self.verify_path_inclusion(bits, bits + 3),
         );
 
         // TODO: do arithmetics on u32le isntead?
@@ -1009,17 +998,160 @@ impl BitcoinInstructionProcessor {
                         {} OP_ADD
 
                         # get a4 address from alt stack
+                        OP_FROMALTSTACK # output bytes
+                        OP_SWAP
                         OP_FROMALTSTACK # script num
                         OP_EQUALVERIFY
+                        OP_TOALTSTACK
                     ",
             script,
             hex::encode(offset.clone()),
         );
         add_tag(offset.clone(), "address offset");
 
+        // get current root top of alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK # output bytes
+                OP_FROMALTSTACK # current root
+                OP_SWAP
+                OP_TOALTSTACK
+                OP_TOALTSTACK
+                ",
+            script,
+        );
+
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, true, 3);
+
+        // fetch output bytes from alt stack, push end root to alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK # prev root
+                OP_FROMALTSTACK # output bytes
+                OP_SWAP
+                OP_TOALTSTACK # prev root
+                OP_SWAP
+                OP_TOALTSTACK # end root
+                ",
+            script,
+        );
+
+        // Verify output value, push path bits to alt stack.
+        let input_bits = self.num_input_bits();
+        script = format!(
+            "{}
+            {}
+                ",
+            script,
+            self.verify_path_inclusion(input_bits, input_bits + 6),
+        );
+
+        // Get path bits, and cat them, apdding them with zeros.
+        for i in input_bits..32 {
+            script = format!(
+                "{}
+            OP_0
+                ",
+                script,
+            );
+        }
+
+        script = format!(
+            "{}
+            {}
+            {}
+                ",
+            script,
+            get_altstack(input_bits),
+            cat_32_bits(true),
+        );
+
+        // Create script num from path bits. Increment counter.
+        script = format!(
+            "{}
+            {}
+            OP_1ADD
+            OP_SWAP
+            # old counter mem rep to alt stack
+            OP_TOALTSTACK
+            # new script num counter
+            OP_TOALTSTACK
+                ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // Verify new counter value from bits.
+        script = format!(
+            "{}
+            # cat new counter bits
+            {}
+            # convert bits to scriptnum
+            {}
+            # get calculated new counter and check they match
+            OP_FROMALTSTACK
+            OP_EQUALVERIFY
+                ",
+            script,
+            cat_32_bits(true),
+            bits_to_scriptnum(32),
+        );
+
+        // The amend the output tree with the new incremented counter.
+        script = format!(
+            "{}
+            # old counter from alt stack
+            OP_FROMALTSTACK
+
+            # verify new counter inclusion
+            OP_SWAP
+            {}
+                ",
+            script,
+            self.amend_index(0, 6),
+        );
+
+        // on stack is new output root.
+        // get end root
+        script = format!(
+            "{}
+            OP_FROMALTSTACK
+                ",
+            script,
+        );
+
+        //copy input root, as it is unchanged.
+        let input_root_pos = 4;
+        script = format!(
+            "{}
+            {}
+            OP_DUP
+                ",
+            script,
+            get_altstack(input_root_pos),
+        );
+
+        for i in 0..input_root_pos {
+            script = format!(
+                "{}
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+                script,
+            );
+        }
+
+        // stack: output_end_root, end_root, input_end_root
+        script = format!(
+            "{}
+                OP_ROT
+                OP_ROT
+                ",
+            script,
+        );
+
+        script = self.verify_commitment(script, false, 3);
 
         Script {
             script,
@@ -4392,6 +4524,20 @@ impl crate::processor::WitnessEcallWrite {
 
         v
     }
+    fn output_index_to_merkle(&self, index: u32) -> Vec<bool> {
+        // TODO: why minus 1?
+        let input_len: u32 = 4096;
+        let bits = 32 - input_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
+            v.push(b != 0);
+        }
+
+        v
+    }
 }
 
 impl WitnessGenerator for crate::processor::WitnessEcallWrite {
@@ -4518,17 +4664,14 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         }
 
         let mem_index = output_tree.get_leaf(0);
-        let index = from_mem_repr(mem_index);
-        let output_mem = output_tree.get_leaf(index as usize);
-        //let output_mem = to_mem_repr(1);
+        let output_index = from_mem_repr(mem_index) as usize;
+        let output_path = self.output_index_to_merkle(output_index as u32);
+        let output_mem = output_tree.get_leaf(output_index);
         let val = from_mem_repr(output_mem.clone());
-        println!("index is {} memory is {}", index, val);
-
-        let next_index = to_mem_repr(index + 1);
-        output_tree.set_leaf(0, next_index);
-        output_tree.commit();
+        println!("index is {} memory is {}", output_index, val);
 
         let buf_proof = pre_tree.proof(buf_ptr_index, output_mem.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(output_mem.clone())));
         for (i, b) in buf_ptr_path.iter().enumerate() {
             if *b {
                 witness.push("01".to_string());
@@ -4543,11 +4686,36 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
+        println!("setting pc {:x}={}", pc_addr, hex::encode(pc_end),);
         pre_tree.commit();
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
+
+        // Prove output change
+        let output_proof = output_tree.proof(output_index, output_mem.clone()).unwrap();
+        for (i, b) in output_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = output_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        // Prove new counter
+        let current_cnt = to_mem_repr(output_index as u32);
+        let cnt_proof = output_tree.proof(0, current_cnt.clone()).unwrap();
+        let next_cnt = to_mem_repr(output_index as u32 + 1);
+        witness.push(format!("{}", witness_encode(next_cnt.clone())));
+        for p in cnt_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        output_tree.set_leaf(0, next_cnt);
+        output_tree.commit();
 
         let end_root_str = hex::encode(pre_tree.root());
         let post_root = hex::encode(end_root);

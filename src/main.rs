@@ -49,11 +49,12 @@ struct Args {
     write: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Event {
     MemoryEvent { e: TraceEvent },
 
     ReadEvent { cnt: usize },
+    WriteEvent { cnt: usize },
 }
 
 struct CountReader {
@@ -82,6 +83,44 @@ impl Read for CountReader {
         buf[..4].copy_from_slice(&le);
 
         Ok(4)
+    }
+}
+
+struct CountWriter {
+    data: Vec<u32>,
+    cnt: usize,
+    trace: Arc<Mutex<Vec<Event>>>,
+}
+
+impl Write for CountWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.cnt >= self.data.len() {
+            //return Err(io::ErrorKind::UnexpectedEof);
+            panic!("cnt({})>len({})", self.cnt, self.data.len());
+            return Err(Error::from(io::ErrorKind::UnexpectedEof));
+        }
+
+        let w = u32::from_le_bytes(buf[..4].try_into().unwrap());
+
+        println!("write cnt {}", self.cnt);
+        self.trace
+            .lock()
+            .unwrap()
+            .push(Event::WriteEvent { cnt: self.cnt });
+
+        if self.data[self.cnt] != w {
+            panic!(
+                "write error. expected next write to be {:x} was {:x}",
+                self.data[self.cnt], w
+            );
+        }
+        self.cnt += 1;
+
+        Ok(4)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -131,7 +170,19 @@ fn main() {
         trace: trace.clone(),
     };
 
-    let mut output = Vec::new();
+    let mut vec32_output = Vec::new();
+    for i in (0..exp_output_bytes.len()).step_by(4) {
+        let b: [u8; 4] = exp_output_bytes[i..i + 4].try_into().unwrap();
+        let w = u32::from_le_bytes(b);
+        vec32_output.push(w);
+    }
+
+    let mut cwriter = CountWriter {
+        data: vec32_output,
+        cnt: 0, // start at 0, but index is +1
+        trace: trace.clone(),
+    };
+
     let env = ExecutorEnv::builder()
         .trace_callback(|e| {
             trace.lock().unwrap().push(Event::MemoryEvent { e });
@@ -140,9 +191,10 @@ fn main() {
         //.write(&w)
         //.unwrap()
         .stdin(creader)
-        .stdout(&mut output)
+        .stdout(cwriter)
         .build()
         .unwrap();
+
     let elf_contents = fs::read(file_path).unwrap();
     let mem_len = guest_mem_len();
 
@@ -317,17 +369,6 @@ fn main() {
         let tn = trace.lock().unwrap().len();
         println!("trace length: {} ({:x})", tn, tn);
     }
-    println!("output: {:?}", output.clone());
-    if !cargs.skip_check_output {
-        let actual_output = hex::encode(output.clone());
-        let exp_output = hex::encode(exp_output_bytes.clone());
-        if actual_output != exp_output {
-            panic!(
-                "actual {} and expected {} output differ",
-                actual_output, exp_output
-            );
-        }
-    }
 
     //let zero_val = to_script_num(0u32.to_le_bytes());
     //let zero_val = 0u32.to_le_bytes();
@@ -336,6 +377,7 @@ fn main() {
     // after each instruction. One is altered by the trace events, while the other is build from the bitcoin instruction processor.
     let mut script_tree = mem_tree.clone();
     let mut script_input_tree = input_tree.clone();
+    let mut script_output_tree = output_tree.clone();
 
     // (pc, insn)
     let mut current_insn: (u32, u32) = (0, 0);
@@ -354,7 +396,7 @@ fn main() {
         let mut trace_mut = trace.lock().unwrap();
         let trace_vec = trace_mut.deref_mut();
         let trace_len = trace_vec.len();
-        let mut prev_read = false;
+        let mut prev_io = false;
         for i in 0..trace_len {
             let ev = &trace_vec[i];
             match ev {
@@ -363,19 +405,23 @@ fn main() {
                         TraceEvent::InstructionStart { cycle, pc, insn } => {
                             tot_ins += 1;
 
-                            // If previous was a read event, swap the order, such the the
+                            // If previous was an IO event, swap the order, such that the
                             // InstructionStart event goes first.
-                            if prev_read {
+                            if prev_io {
                                 trace_vec.swap(i - 1, i);
                             }
                         }
                         _ => {}
                     }
-                    prev_read = false;
+                    prev_io = false;
                 }
                 Event::ReadEvent { cnt } => {
                     tot_reads += 1;
-                    prev_read = true;
+                    prev_io = true;
+                }
+                Event::WriteEvent { cnt } => {
+                    tot_reads += 1;
+                    prev_io = true;
                 }
             }
         }
@@ -396,6 +442,18 @@ fn main() {
                 input_tree.set_leaf(0, mem_index);
                 continue 'outer;
             }
+            Event::WriteEvent { cnt } => {
+                // Read event cnt was executed, increment counter.
+                let next_cnt = *cnt as u32 + 1;
+
+                // Since the next index to read is what we store, and indexes start at 1, it will
+                // be +1 the next counter.
+                let next_index = next_cnt + 1;
+                let mem_index = processor::to_mem_repr(next_index);
+                output_tree.set_leaf(0, mem_index);
+                continue 'outer;
+            }
+
             Event::MemoryEvent { e } => e,
         };
 
@@ -434,7 +492,7 @@ fn main() {
                         let (mut witness, mut w_tags) = desc.witness_gen.generate_witness(
                             &mut script_tree,
                             &mut script_input_tree,
-                            &mut output_tree,
+                            &mut script_output_tree,
                             root,
                         );
 
@@ -547,6 +605,12 @@ fn main() {
                 let i2 = hex::encode(input_tree.root());
                 if i1 != i2 {
                     panic!("input root mismatch: {} vs {}", i1, i2);
+                }
+
+                let o1 = hex::encode(script_output_tree.root());
+                let o2 = hex::encode(output_tree.root());
+                if o1 != o2 {
+                    panic!("output root mismatch: {} vs {}", o1, o2);
                 }
 
                 //let opcode = OpCode::decode(*insn, *pc).unwrap();
