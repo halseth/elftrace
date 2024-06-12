@@ -3,7 +3,7 @@ Verify RISC-V binary execution in Bitcoin script.
 
 ## What is this?
 `Bitcoin Elftrace` is a proof of concept tool used to trace the execution of
-RISCV-32 binaries (ELFs), and and generate Bitcoin script that can be used to
+RISCV-32 binaries (ELFs), and generate Bitcoin script that can be used to
 verify this execution on-chain.
 
 ## How do I use it?
@@ -30,10 +30,12 @@ style script in order to set up a proper smart contract. See
 an example.
 
 ## Are there any limitations?
-This is very much in a POC stage. The compiler currently expects the compiled
-program to take a single integer as input, and outputs a single integer. There
-is also a few RISCV opcodes not yet implemented, I just wanted to build a few
-more non-toy programs to test it on before making that effort.
+This is very much in a POC stage. Here's a non-exhaustive list of known
+issues/TODOs:
+
+- [ ] `CScriptNum` is used when doing operations on address locations and
+  various other operations. This can fail if numbers exceed 31-bit.
+- [ ] RISC-V opcodes `SLTI`, `LB`, `SLT`, `SRA` currently not implemented.
 
 ## When can I use this on mainnet?
 In order to use this on mainnet we would need to deploy a _covenant opcode_.
