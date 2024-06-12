@@ -618,7 +618,7 @@ pub struct BitcoinInstructionProcessor {
 }
 
 impl BitcoinInstructionProcessor {
-    pub fn ecall_read(&self, input: u32) -> crate::processor::Script {
+    pub fn ecall_read(&self) -> crate::processor::Script {
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
             if k.len() == 0 {
@@ -664,29 +664,28 @@ impl BitcoinInstructionProcessor {
 
         let bits = self.num_bits();
 
-        // on stack proof of input bytes inclusion at memory index. including path bits
+        // stack: <merkle proof> <old memory val> <input bytes>
+
+        // copy input bytes for later verification against input root.
         script = format!(
             "{}
-                    # get input from alt stack, we will prove it is in the new root, at index rs1+imm
-                    OP_FROMALTSTACK # current root
-                    OP_FROMALTSTACK #a0 script num
-                    OP_FROMALTSTACK # start root
-                    OP_FROMALTSTACK #input bytes mem repr
-                    OP_DUP
-                    OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
+                OP_DUP
+                OP_TOALTSTACK
+                ",
+            script,
+        );
 
+        script = format!(
+            "{}
         # amend path
         {}
                 ",
             script,
-            self.amend_path(bits, 1 + bits),
+            self.amend_path(bits, 2 + bits),
         );
 
         // On stack: new root
-        // alt stack: bits
+        // alt stack: bits of write index
         script = format!(
             "{}
                 # on alt stack is binary encoding of memory index (including imm), convert it to scriptnum
@@ -708,8 +707,11 @@ impl BitcoinInstructionProcessor {
                         {} OP_ADD
 
                         # get from alt stack
+                        OP_FROMALTSTACK # input bytes
                         OP_FROMALTSTACK # current
                         OP_FROMALTSTACK # script num
+                        OP_SWAP
+                        OP_TOALTSTACK
                         OP_SWAP
                         OP_TOALTSTACK
                         OP_EQUALVERIFY
@@ -723,6 +725,7 @@ impl BitcoinInstructionProcessor {
         script = push_altstack(&script);
 
         // a1
+        // todo: verify value of a1 somehow?
         script = format!(
             "{}
                 # old and new a1 in cat format on stack.  amend register.
@@ -737,13 +740,149 @@ impl BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 4);
+        script = push_altstack(&script);
+
+        // fetch input bytes from alt stack, push end root to alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK # prev root
+                OP_FROMALTSTACK # prev-1 root
+                OP_FROMALTSTACK # prev-2 root
+                OP_FROMALTSTACK # input bytes
+                OP_SWAP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+            script,
+        );
+
+        // Verify input value, push path bits to alt stack.
+        let input_bits = self.num_input_bits();
+        script = format!(
+            "{}
+            {}
+                ",
+            script,
+            self.verify_path_inclusion(input_bits, input_bits + 6),
+        );
+
+        // Get path bits, and cat them, apdding them with zeros.
+        for i in input_bits..32 {
+            script = format!(
+                "{}
+            OP_0
+                ",
+                script,
+            );
+        }
+
+        script = format!(
+            "{}
+            {}
+            {}
+                ",
+            script,
+            get_altstack(input_bits),
+            cat_32_bits(true),
+        );
+
+        // Create script num from path bits. Increment counter.
+        script = format!(
+            "{}
+            {}
+
+            OP_1ADD
+
+            OP_SWAP
+            # old counter mem rep to alt stack
+            OP_TOALTSTACK
+
+            # new script num counter
+            OP_TOALTSTACK
+                ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // Verify new counter value from bits.
+        script = format!(
+            "{}
+            # cat new counter bits
+            {}
+
+            # convert bits to scriptnum
+            {}
+
+            # get calculated new counter and check they match
+            OP_FROMALTSTACK
+            OP_EQUALVERIFY
+                ",
+            script,
+            cat_32_bits(true),
+            bits_to_scriptnum(32),
+        );
+
+        // The amend the input tree with the new incremented counter.
+        script = format!(
+            "{}
+            # old counter from alt stack
+            OP_FROMALTSTACK
+
+            # verify new counter inclusion
+            OP_SWAP
+            {}
+                ",
+            script,
+            self.amend_index(0, 6),
+        );
+
+        // on stack is new input root.
+        // get end root
+        script = format!(
+            "{}
+            OP_FROMALTSTACK
+                ",
+            script,
+        );
+
+        //copy output root, as it is unchanged.
+        let output_root_pos = 6;
+        script = format!(
+            "{}
+            {}
+            OP_DUP
+                ",
+            script,
+            get_altstack(output_root_pos),
+        );
+
+        for i in 0..output_root_pos {
+            script = format!(
+                "{}
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+                script,
+            );
+        }
+
+        // stack: input_end_root, end_root, output_end_root
+        script = format!(
+            "{}
+                OP_SWAP
+                ",
+            script,
+        );
+
+        script = self.verify_commitment(script, false, 4);
 
         crate::processor::Script {
             script,
             witness_gen: Box::new(crate::processor::WitnessEcallRead {
                 insn_pc: self.insn_pc,
-                input: input,
                 start_addr: self.start_addr,
                 mem_len: self.mem_len,
             }),
@@ -751,7 +890,7 @@ impl BitcoinInstructionProcessor {
         }
     }
 
-    pub fn ecall_write(&self, output: u32) -> Script {
+    pub fn ecall_write(&self) -> Script {
         let mut tags = HashMap::new();
         let mut add_tag = |k: Vec<u8>, v: &str| {
             if k.len() == 0 {
@@ -795,7 +934,7 @@ impl BitcoinInstructionProcessor {
             self.amend_register(REG_A1, 1),
         );
 
-        // Output buffer is found in address pointed tp by a4
+        // Output bytes is found in address pointed tp by a4
         script = format!(
             "{}
                 # a4 in bits format on stack. Build mem repr format
@@ -824,29 +963,18 @@ impl BitcoinInstructionProcessor {
 
         let bits = self.num_bits();
 
-        // on stack proof of output bytes inclusion at memory index. including path bits
+        // on stack output bytes and proof of output bytes inclusion at memory index, including path bits
         script = format!(
             "{}
-                    # get output from alt stack, we will prove it is in the root, at index (a4)
-                    OP_FROMALTSTACK # script num
-                    OP_FROMALTSTACK # root2
-                    OP_FROMALTSTACK # root1
-                    OP_FROMALTSTACK # start root
-                    OP_FROMALTSTACK #input bytes mem repr
-                    OP_FROMALTSTACK #output bytes mem repr
-                    OP_DUP
-                    OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
-                    OP_SWAP OP_TOALTSTACK
+            # copy output bytes for later inclusiong check
+            OP_DUP
+            OP_TOALTSTACK
 
         # verify memory inclusion
         {}
                 ",
             script,
-            self.verify_path_inclusion(bits, bits + 2),
+            self.verify_path_inclusion(bits, bits + 3),
         );
 
         // TODO: do arithmetics on u32le isntead?
@@ -870,23 +998,165 @@ impl BitcoinInstructionProcessor {
                         {} OP_ADD
 
                         # get a4 address from alt stack
+                        OP_FROMALTSTACK # output bytes
+                        OP_SWAP
                         OP_FROMALTSTACK # script num
                         OP_EQUALVERIFY
+                        OP_TOALTSTACK
                     ",
             script,
             hex::encode(offset.clone()),
         );
         add_tag(offset.clone(), "address offset");
 
+        // get current root top of alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK # output bytes
+                OP_FROMALTSTACK # current root
+                OP_SWAP
+                OP_TOALTSTACK
+                OP_TOALTSTACK
+                ",
+            script,
+        );
+
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 3);
+
+        // fetch output bytes from alt stack, push end root to alt stack
+        script = format!(
+            "{}
+                OP_FROMALTSTACK # prev root
+                OP_FROMALTSTACK # output bytes
+                OP_SWAP
+                OP_TOALTSTACK # prev root
+                OP_SWAP
+                OP_TOALTSTACK # end root
+                ",
+            script,
+        );
+
+        // Verify output value, push path bits to alt stack.
+        let input_bits = self.num_input_bits();
+        script = format!(
+            "{}
+            {}
+                ",
+            script,
+            self.verify_path_inclusion(input_bits, input_bits + 6),
+        );
+
+        // Get path bits, and cat them, apdding them with zeros.
+        for i in input_bits..32 {
+            script = format!(
+                "{}
+            OP_0
+                ",
+                script,
+            );
+        }
+
+        script = format!(
+            "{}
+            {}
+            {}
+                ",
+            script,
+            get_altstack(input_bits),
+            cat_32_bits(true),
+        );
+
+        // Create script num from path bits. Increment counter.
+        script = format!(
+            "{}
+            {}
+            OP_1ADD
+            OP_SWAP
+            # old counter mem rep to alt stack
+            OP_TOALTSTACK
+            # new script num counter
+            OP_TOALTSTACK
+                ",
+            script,
+            bits_to_scriptnum(32),
+        );
+
+        // Verify new counter value from bits.
+        script = format!(
+            "{}
+            # cat new counter bits
+            {}
+            # convert bits to scriptnum
+            {}
+            # get calculated new counter and check they match
+            OP_FROMALTSTACK
+            OP_EQUALVERIFY
+                ",
+            script,
+            cat_32_bits(true),
+            bits_to_scriptnum(32),
+        );
+
+        // The amend the output tree with the new incremented counter.
+        script = format!(
+            "{}
+            # old counter from alt stack
+            OP_FROMALTSTACK
+
+            # verify new counter inclusion
+            OP_SWAP
+            {}
+                ",
+            script,
+            self.amend_index(0, 6),
+        );
+
+        // on stack is new output root.
+        // get end root
+        script = format!(
+            "{}
+            OP_FROMALTSTACK
+                ",
+            script,
+        );
+
+        //copy input root, as it is unchanged.
+        let input_root_pos = 4;
+        script = format!(
+            "{}
+            {}
+            OP_DUP
+                ",
+            script,
+            get_altstack(input_root_pos),
+        );
+
+        for i in 0..input_root_pos {
+            script = format!(
+                "{}
+                OP_SWAP
+                OP_TOALTSTACK
+                ",
+                script,
+            );
+        }
+
+        // stack: output_end_root, end_root, input_end_root
+        script = format!(
+            "{}
+                OP_ROT
+                OP_ROT
+                ",
+            script,
+        );
+
+        script = self.verify_commitment(script, false, 3);
 
         Script {
             script,
             witness_gen: Box::new(WitnessEcallWrite {
                 insn_pc: self.insn_pc,
-                output: output,
                 start_addr: self.start_addr,
                 mem_len: self.mem_len,
             }),
@@ -898,11 +1168,31 @@ impl BitcoinInstructionProcessor {
         32 - self.mem_len.leading_zeros() - 1
     }
 
+    fn num_input_bits(&self) -> u32 {
+        let input_len: u32 = 4096;
+        32 - input_len.leading_zeros() - 1
+    }
+
     fn addr_to_merkle(&self, addr: u32) -> Vec<bool> {
         let index = (addr - self.start_addr) / WORD_SIZE as u32;
 
         // TODO: why minus 1?
         let bits = 32 - self.mem_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
+            v.push(b != 0);
+        }
+
+        v
+    }
+
+    fn input_index_to_merkle(&self, index: u32) -> Vec<bool> {
+        // TODO: why minus 1?
+        let input_len: u32 = 4096;
+        let bits = 32 - input_len.leading_zeros() - 1;
 
         // Binary of index will be path down to leaf.
         let mut v: Vec<bool> = vec![];
@@ -986,18 +1276,39 @@ impl BitcoinInstructionProcessor {
     }
 
     // checks start and end state againsst input commitment
-    // commitment: sha(sha(input)|sha(output)|start_root|end_root)
-    // stack: <input> <output> <end root>
-    // altstack: <output> <input> <start root> at pos [root_pos-1]
+    // commitment: sha(input_start_root|input_end_root|output_start_root|output_end_root|start_root|end_root)
+    // stack: <input_end_root> <output_end_root> <end root>
+    // altstack: <output_start_root> <input_start_root> <start root> at pos [root_pos-1]
     // NOTE: everything else on the alt stack will be dropped, as this is expected to be the last part of the script.
     // output:
+    // NOTE: if no_io=false, it will assume input/output end roots are not on the stack.
     // stack: OP_1
-    fn verify_commitment(&self, script: String, root_pos: u32) -> String {
+    fn verify_commitment(&self, script: String, no_io: bool, root_pos: u32) -> String {
         let mut script = script;
         for _ in (0..root_pos - 1) {
             script = format!(
                 "{}
         OP_FROMALTSTACK OP_DROP
+",
+                script,
+            );
+        }
+
+        if no_io {
+            script = format!(
+                "{}
+                OP_FROMALTSTACK
+                OP_FROMALTSTACK
+                OP_FROMALTSTACK
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_DUP
+                OP_TOALTSTACK
+                OP_SWAP
+                OP_ROT
+                OP_TOALTSTACK
+                OP_ROT
 ",
                 script,
             );
@@ -1010,18 +1321,26 @@ impl BitcoinInstructionProcessor {
 
         # start_root|end_root
         OP_SWAP
-        OP_CAT
+        OP_CAT # start_root|end_root
 
-        # sha(input)|sha(output]
-        OP_FROMALTSTACK # input
-        OP_SHA256
-        OP_FROMALTSTACK # output
-        OP_SHA256
-        OP_CAT
+        # input_end_root on top
+        OP_ROT
 
-       # sha(input)|sha(output)|start_root|end_root
+        OP_FROMALTSTACK # input_start_root
         OP_SWAP
-        OP_CAT
+        OP_CAT # input_start|input_end
+
+        # output_end_root on top
+        OP_ROT
+
+        OP_FROMALTSTACK # output_start_root
+        OP_SWAP
+
+        OP_CAT # output_start_root|output_end_root
+
+        OP_CAT # input_start_root|input_end_root|output_startroot|output_end_root
+        OP_SWAP
+        OP_CAT # input_start_root|input_end_root|output_startroot|output_end_root|start_root|end_root
 
         # check input commitment
         OP_SHA256
@@ -1060,6 +1379,114 @@ impl BitcoinInstructionProcessor {
 
         let addr = reg_addr(reg);
         let path = self.addr_to_merkle(addr);
+        let incl = Self::merkle_inclusion(&path);
+
+        script = format!(
+            "{}
+            # hash new leaf
+            OP_SHA256 OP_TOALTSTACK
+
+            # hash old leaf
+            OP_SHA256
+        ",
+            script,
+        );
+
+        for right in path {
+            script = format!(
+                "{}
+# Use merkle sibling together with new leaf on alt stack to find new merkle
+# node and push it to the altstack.
+OP_2DUP OP_DROP # duplicate sibling
+OP_FROMALTSTACK # get new node from alt stack",
+                script
+            );
+
+            if !right {
+                //if right {
+                script = format!(
+                    "{}
+OP_SWAP # swap direcion
+        ",
+                    script
+                );
+            }
+
+            script = format!(
+                "{}
+OP_CAT OP_SHA256 OP_TOALTSTACK # combine to get new node to altstack
+        ",
+                script
+            );
+
+            if !right {
+                //if right {
+                script = format!(
+                    "{}
+OP_SWAP # swap direcion
+        ",
+                    script
+                );
+            }
+            script = format!(
+                "{}
+# Do the same with the current merkle leaf.
+OP_CAT OP_SHA256
+        ",
+                script
+            );
+        }
+
+        // On alt stack: <old root> <new root>
+        // on stack: <old root>
+
+        // get old root on top
+        script = format!(
+            "{}
+        OP_FROMALTSTACK # new root from alt stack
+        OP_SWAP
+",
+            script
+        );
+
+        for _ in (0..root_pos) {
+            script = format!(
+                "{}
+        OP_FROMALTSTACK # current element from alt stack",
+                script
+            );
+        }
+
+        script = format!(
+            "{}
+OP_DUP
+        ",
+            script
+        );
+        for _ in (0..root_pos) {
+            script = format!(
+                "{}
+        OP_SWAP OP_TOALTSTACK",
+                script
+            );
+        }
+
+        // On alt stack: <old root> <new root>
+        // on stack: <old root> <old root>
+        script = format!(
+            "{}
+OP_EQUALVERIFY # verify old root
+        ",
+            script
+        );
+
+        script
+    }
+
+    fn amend_index(&self, index: usize, root_pos: u32) -> String {
+        let mut script = format!("");
+
+        let path = self.input_index_to_merkle(index as u32);
         let incl = Self::merkle_inclusion(&path);
 
         script = format!(
@@ -1461,7 +1888,7 @@ OP_DUP
             self.amend_register(REG_MAX, 1),
         );
 
-        script = self.verify_commitment(script, 1);
+        script = self.verify_commitment(script, true, 1);
 
         (script, tags)
     }
@@ -1471,6 +1898,8 @@ pub trait WitnessGenerator {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>);
 }
@@ -1484,6 +1913,9 @@ impl WitnessGenerator for WitnessAddi {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1578,6 +2010,9 @@ impl WitnessGenerator for WitnessAndi {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1672,6 +2107,9 @@ impl WitnessGenerator for crate::processor::WitnessXori {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1750,7 +2188,10 @@ impl WitnessGenerator for crate::processor::WitnessXori {
         let end_root_str = hex::encode(pre_tree.root());
         let post_root = hex::encode(end_root);
         if end_root_str != post_root {
-            panic!("end root mismatch: {} vs {}", end_root_str, post_root);
+            panic!(
+                "end root mismatch@{:x}: {} vs {}",
+                self.insn_pc, end_root_str, post_root
+            );
         }
 
         (witness.into_iter().rev().collect(), tags)
@@ -1766,6 +2207,9 @@ impl WitnessGenerator for crate::processor::WitnessOri {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1860,6 +2304,9 @@ impl WitnessGenerator for crate::processor::WitnessSltui {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -1956,6 +2403,9 @@ impl WitnessGenerator for crate::processor::WitnessSrl {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2061,6 +2511,9 @@ impl WitnessGenerator for crate::processor::WitnessSll {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2166,6 +2619,9 @@ impl WitnessGenerator for crate::processor::WitnessSlli {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2249,6 +2705,9 @@ impl WitnessGenerator for crate::processor::WitnessSrli {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2332,6 +2791,9 @@ impl WitnessGenerator for crate::processor::WitnessSrai {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2415,6 +2877,9 @@ impl WitnessGenerator for crate::processor::WitnessLui {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2482,6 +2947,9 @@ impl WitnessGenerator for crate::processor::WitnessAuipc {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2576,6 +3044,9 @@ impl WitnessGenerator for crate::processor::WitnessBranch {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2681,6 +3152,9 @@ impl WitnessGenerator for crate::processor::WitnessLh {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2819,6 +3293,9 @@ impl WitnessGenerator for crate::processor::WitnessLhu {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -2953,6 +3430,9 @@ impl WitnessGenerator for crate::processor::WitnessLbu {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3086,6 +3566,9 @@ impl WitnessGenerator for crate::processor::WitnessLw {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3204,6 +3687,9 @@ impl WitnessGenerator for crate::processor::WitnessSb {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3337,6 +3823,9 @@ impl WitnessGenerator for crate::processor::WitnessSh {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3472,6 +3961,9 @@ impl WitnessGenerator for crate::processor::WitnessSw {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3572,6 +4064,9 @@ impl WitnessGenerator for crate::processor::WitnessJal {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3639,6 +4134,9 @@ impl WitnessGenerator for crate::processor::WitnessJalr {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3755,7 +4253,6 @@ fn load_words(tree: &mut fast_merkle::Tree, mut addr: u32, n: usize, w: &mut [u3
 }
 struct WitnessEcallRead {
     insn_pc: u32,
-    input: u32,
     start_addr: u32,
     mem_len: u32,
 }
@@ -3774,12 +4271,30 @@ impl crate::processor::WitnessEcallRead {
 
         v
     }
+
+    fn input_index_to_merkle(&self, index: u32) -> Vec<bool> {
+        // TODO: why minus 1?
+        let input_len: u32 = 4096;
+        let bits = 32 - input_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
+            v.push(b != 0);
+        }
+
+        v
+    }
 }
 
 impl WitnessGenerator for crate::processor::WitnessEcallRead {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -3874,7 +4389,17 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         let write_index = addr_to_index(write_addr as usize);
         let write_path = self.addr_to_merkle(write_addr as u32);
 
-        let input_mem = to_mem_repr(self.input);
+        let mem_index = input_tree.get_leaf(0);
+        let input_index = from_mem_repr(mem_index) as usize;
+        let input_path = self.input_index_to_merkle(input_index as u32);
+        let input_mem = input_tree.get_leaf(input_index);
+        println!(
+            "input index {} = {}",
+            input_index,
+            hex::encode(input_mem.clone())
+        );
+        add_tag(input_mem.clone(), "input_mem");
+        let val = from_mem_repr(input_mem.clone());
 
         let n_read_bytes: u32 = 4;
 
@@ -3890,10 +4415,12 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         }
 
         pre_tree.set_leaf(a0_index, new_a0_mem.clone());
+        println!("setting a0 {:x}={}", a0_addr, hex::encode(new_a0_mem),);
         pre_tree.commit();
 
         // Reveal old value of memory location in witness.
         let pre_mem_val = pre_tree.get_leaf(write_index);
+        witness.push(format!("{}", cat_encode(input_mem.clone())));
         witness.push(format!("{}", cat_encode(pre_mem_val.clone())));
 
         let write_proof = pre_tree.proof(write_index, pre_mem_val.clone()).unwrap();
@@ -3909,6 +4436,11 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         }
 
         pre_tree.set_leaf(write_index, input_mem.clone());
+        println!(
+            "setting writeaddr {:x}={}",
+            write_addr,
+            hex::encode(input_mem.clone()),
+        );
         pre_tree.commit();
 
         let new_a1_mem = to_mem_repr(new_a1);
@@ -3922,6 +4454,7 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         }
 
         pre_tree.set_leaf(a1_index, new_a1_mem.clone());
+        println!("setting a1 {:x}= {}", a1_addr, hex::encode(new_a1_mem),);
         pre_tree.commit();
 
         // TODO: prove new register
@@ -3930,11 +4463,36 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
+        println!("setting pc {:x}={}", pc_addr, hex::encode(pc_end),);
         pre_tree.commit();
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
+
+        // Prove input change
+        let input_proof = input_tree.proof(input_index, input_mem.clone()).unwrap();
+        for (i, b) in input_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = input_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        // Prove new counter
+        let current_cnt = to_mem_repr(input_index as u32);
+        let cnt_proof = input_tree.proof(0, current_cnt.clone()).unwrap();
+        let next_cnt = to_mem_repr(input_index as u32 + 1);
+        witness.push(format!("{}", witness_encode(next_cnt.clone())));
+        for p in cnt_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        input_tree.set_leaf(0, next_cnt);
+        input_tree.commit();
 
         let end_root_str = hex::encode(pre_tree.root());
         let post_root = hex::encode(end_root);
@@ -3948,7 +4506,6 @@ impl WitnessGenerator for crate::processor::WitnessEcallRead {
 
 struct WitnessEcallWrite {
     insn_pc: u32,
-    output: u32,
     start_addr: u32,
     mem_len: u32,
 }
@@ -3967,12 +4524,29 @@ impl crate::processor::WitnessEcallWrite {
 
         v
     }
+    fn output_index_to_merkle(&self, index: u32) -> Vec<bool> {
+        // TODO: why minus 1?
+        let input_len: u32 = 4096;
+        let bits = 32 - input_len.leading_zeros() - 1;
+
+        // Binary of index will be path down to leaf.
+        let mut v: Vec<bool> = vec![];
+        for b in (0..bits).map(|n| (index >> n) & 1) {
+            //v.push(b == 0);
+            v.push(b != 0);
+        }
+
+        v
+    }
 }
 
 impl WitnessGenerator for crate::processor::WitnessEcallWrite {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4024,6 +4598,17 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         let a2_val = pre_tree.get_leaf(a2_index);
         let a2_u32 = from_mem_repr(a2_val);
 
+        let syscall = load_string(pre_tree, a2_u32);
+        //println!("ecall name: {}", syscall);
+
+        // We'll reverse it later.
+        let mut witness = vec![hex::encode(start_root)];
+
+        if syscall != SYS_WRITE.as_str() {
+            //panic!("Unknown syscall {syscall}");
+            return (witness.into_iter().rev().collect(), HashMap::new());
+        }
+
         let a3_addr = reg_addr(REG_A3);
         let a3_index = addr_to_index(a3_addr as usize);
         let a3_val = pre_tree.get_leaf(a3_index);
@@ -4039,17 +4624,6 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         let a5_addr = reg_addr(REG_A5);
         let a5_index = addr_to_index(a5_addr as usize);
         let a5_val = pre_tree.get_leaf(a5_index);
-
-        let syscall = load_string(pre_tree, a2_u32);
-        println!("ecall name: {}", syscall);
-
-        // We'll reverse it later.
-        let mut witness = vec![hex::encode(start_root)];
-
-        if syscall != SYS_WRITE.as_str() {
-            //panic!("Unknown syscall {syscall}");
-            return (witness.into_iter().rev().collect(), HashMap::new());
-        }
 
         let new_a0: u32 = 0;
         let new_a1: u32 = 0;
@@ -4089,8 +4663,15 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
             witness.push(hex::encode(p))
         }
 
-        let output_mem = to_mem_repr(self.output);
+        let mem_index = output_tree.get_leaf(0);
+        let output_index = from_mem_repr(mem_index) as usize;
+        let output_path = self.output_index_to_merkle(output_index as u32);
+        let output_mem = output_tree.get_leaf(output_index);
+        let val = from_mem_repr(output_mem.clone());
+        println!("index is {} memory is {}", output_index, val);
+
         let buf_proof = pre_tree.proof(buf_ptr_index, output_mem.clone()).unwrap();
+        witness.push(format!("{}", cat_encode(output_mem.clone())));
         for (i, b) in buf_ptr_path.iter().enumerate() {
             if *b {
                 witness.push("01".to_string());
@@ -4105,11 +4686,36 @@ impl WitnessGenerator for crate::processor::WitnessEcallWrite {
         let start_pc_proof = pre_tree.proof(pc_index, pc_start.clone()).unwrap();
 
         pre_tree.set_leaf(pc_index, pc_end.clone());
+        println!("setting pc {:x}={}", pc_addr, hex::encode(pc_end),);
         pre_tree.commit();
 
         for p in start_pc_proof.clone() {
             witness.push(hex::encode(p))
         }
+
+        // Prove output change
+        let output_proof = output_tree.proof(output_index, output_mem.clone()).unwrap();
+        for (i, b) in output_path.iter().enumerate() {
+            if *b {
+                witness.push("01".to_string());
+            } else {
+                witness.push("<>".to_string());
+            }
+            let p = output_proof[i];
+            witness.push(hex::encode(p))
+        }
+
+        // Prove new counter
+        let current_cnt = to_mem_repr(output_index as u32);
+        let cnt_proof = output_tree.proof(0, current_cnt.clone()).unwrap();
+        let next_cnt = to_mem_repr(output_index as u32 + 1);
+        witness.push(format!("{}", witness_encode(next_cnt.clone())));
+        for p in cnt_proof.clone() {
+            witness.push(hex::encode(p))
+        }
+
+        output_tree.set_leaf(0, next_cnt);
+        output_tree.commit();
 
         let end_root_str = hex::encode(pre_tree.root());
         let post_root = hex::encode(end_root);
@@ -4129,6 +4735,9 @@ impl WitnessGenerator for crate::processor::WitnessAdd {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4234,6 +4843,9 @@ impl WitnessGenerator for crate::processor::WitnessSub {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4338,6 +4950,9 @@ impl WitnessGenerator for crate::processor::WitnessSltu {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4445,6 +5060,9 @@ impl WitnessGenerator for crate::processor::WitnessXor {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4549,6 +5167,9 @@ impl WitnessGenerator for crate::processor::WitnessOr {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4653,6 +5274,9 @@ impl WitnessGenerator for crate::processor::WitnessAnd {
     fn generate_witness(
         &self,
         pre_tree: &mut fast_merkle::Tree,
+        input_tree: &mut fast_merkle::Tree,
+        output_tree: &mut fast_merkle::Tree,
+
         end_root: [u8; 32],
     ) -> (Vec<String>, HashMap<String, String>) {
         let mut tags = HashMap::new();
@@ -4849,7 +5473,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -4973,7 +5597,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5143,7 +5767,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -5264,7 +5888,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5368,7 +5992,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5541,7 +6165,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -5649,7 +6273,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5753,7 +6377,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5841,7 +6465,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -5947,7 +6571,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6049,7 +6673,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6137,7 +6761,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6243,7 +6867,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6358,7 +6982,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6446,7 +7070,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6534,7 +7158,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script,
@@ -6596,7 +7220,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6663,7 +7287,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -6983,7 +7607,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7267,7 +7891,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7549,7 +8173,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7685,7 +8309,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -7967,7 +8591,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8240,7 +8864,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8375,7 +8999,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Increment pc
         script = self.increment_pc(script);
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,
@@ -8448,7 +9072,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
 
         // Set new pc to pc + imm;
         script = self.add_pc(script, dec_insn.imm);
-        script = self.verify_commitment(script, root_pos);
+        script = self.verify_commitment(script, true, root_pos);
 
         Script {
             script: script,
@@ -8579,7 +9203,7 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
             script_encode_const(dec_insn.imm),
         );
 
-        script = self.verify_commitment(script, 2);
+        script = self.verify_commitment(script, true, 2);
 
         Script {
             script: script,

@@ -14,11 +14,12 @@ use sha2::{Digest, Sha256};
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Error, Read, Write};
+use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use std::{env, fs};
+use std::{env, fs, io};
 
 mod processor;
 
@@ -33,11 +34,11 @@ struct Args {
 
     /// Input to the program
     #[arg(short, long)]
-    input: u32,
+    input: String,
 
     /// Expected output of the program
     #[arg(short, long)]
-    output: u32,
+    output: String,
 
     /// Skip checking whether final output matches expected output.
     #[arg(short, long)]
@@ -48,33 +49,157 @@ struct Args {
     write: bool,
 }
 
+#[derive(Clone, Debug)]
+enum Event {
+    MemoryEvent { e: TraceEvent },
+
+    ReadEvent { cnt: usize },
+    WriteEvent { cnt: usize },
+}
+
+struct CountReader {
+    data: Vec<u32>,
+    cnt: usize,
+    trace: Arc<Mutex<Vec<Event>>>,
+}
+
+impl Read for CountReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.cnt >= self.data.len() {
+            //return Err(io::ErrorKind::UnexpectedEof);
+            return Err(Error::from(io::ErrorKind::UnexpectedEof));
+        }
+
+        println!("rad cnt {}", self.cnt);
+        self.trace
+            .lock()
+            .unwrap()
+            .push(Event::ReadEvent { cnt: self.cnt });
+
+        let w = self.data[self.cnt];
+        self.cnt += 1;
+
+        let le = w.to_le_bytes();
+        buf[..4].copy_from_slice(&le);
+
+        Ok(4)
+    }
+}
+
+struct CountWriter {
+    data: Vec<u32>,
+    cnt: usize,
+    trace: Arc<Mutex<Vec<Event>>>,
+}
+
+impl Write for CountWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.cnt >= self.data.len() {
+            //return Err(io::ErrorKind::UnexpectedEof);
+            panic!("cnt({})>len({})", self.cnt, self.data.len());
+            return Err(Error::from(io::ErrorKind::UnexpectedEof));
+        }
+
+        let w = u32::from_le_bytes(buf[..4].try_into().unwrap());
+
+        println!("write cnt {}", self.cnt);
+        self.trace
+            .lock()
+            .unwrap()
+            .push(Event::WriteEvent { cnt: self.cnt });
+
+        if self.data[self.cnt] != w {
+            panic!(
+                "write error. expected next write to be {:x} was {:x}",
+                self.data[self.cnt], w
+            );
+        }
+        self.cnt += 1;
+
+        Ok(4)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 fn main() {
     let cargs = Args::parse();
     let file_path = cargs.binary;
     println!("parsing file {}", file_path);
 
-    let x = cargs.input;
-    println!("using x={} as program input", x);
+    let input_bytes = hex::decode(cargs.input.clone()).unwrap();
+    println!(
+        "using x={} as program input",
+        hex::encode(input_bytes.clone())
+    );
 
-    let exp_output = cargs.output;
-    println!("using y={} as expected program output", exp_output);
+    let exp_output_bytes = hex::decode(cargs.output.clone()).unwrap();
+    println!(
+        "using y={} as expected program output",
+        hex::encode(exp_output_bytes.clone())
+    );
 
     let mtxs = Arc::new(Mutex::new(Vec::new()));
-    let trace = mtxs.clone();
+    let trace: Arc<Mutex<Vec<Event>>> = mtxs.clone();
 
-    let mut output = Vec::new();
+    if input_bytes.len() % 4 != 0 {
+        panic!("input must be divisible by 4");
+    }
+    if exp_output_bytes.len() % 4 != 0 {
+        panic!("output must be divisible by 4");
+    }
+
+    fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
+    fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
+    fs::create_dir_all("trace/witness").unwrap(); // make sure the 'witness' directory exists
+    fs::create_dir_all("trace/tags").unwrap(); // make sure the 'tags' directory exists
+    fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
+
+    let mut vec32 = Vec::new();
+    for i in (0..input_bytes.len()).step_by(4) {
+        let b: [u8; 4] = input_bytes[i..i + 4].try_into().unwrap();
+        let w = u32::from_le_bytes(b);
+        vec32.push(w);
+    }
+
+    let creader = CountReader {
+        data: vec32,
+        cnt: 0,
+        trace: trace.clone(),
+    };
+
+    let mut vec32_output = Vec::new();
+    for i in (0..exp_output_bytes.len()).step_by(4) {
+        let b: [u8; 4] = exp_output_bytes[i..i + 4].try_into().unwrap();
+        let w = u32::from_le_bytes(b);
+        vec32_output.push(w);
+    }
+
+    let mut cwriter = CountWriter {
+        data: vec32_output,
+        cnt: 0, // start at 0, but index is +1
+        trace: trace.clone(),
+    };
+
     let env = ExecutorEnv::builder()
         .trace_callback(|e| {
-            trace.lock().unwrap().push(e);
+            trace.lock().unwrap().push(Event::MemoryEvent { e });
             Ok(())
         })
-        .write(&x)
-        .unwrap()
-        .stdout(&mut output)
+        //.write(&w)
+        //.unwrap()
+        .stdin(creader)
+        .stdout(cwriter)
         .build()
         .unwrap();
+
     let elf_contents = fs::read(file_path).unwrap();
     let mem_len = guest_mem_len();
+
+    let zero_val = [0u8; 32];
+    let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
 
     // Recreated executor starting memory.
     let program = Program::load_elf(&elf_contents, GUEST_MAX_MEM as u32).unwrap();
@@ -83,15 +208,49 @@ fn main() {
     let mut addr: u32 = 0;
     let mut scripts = HashMap::new();
     let mut roots: Vec<[u8; 32]> = vec![];
+    let mut input_roots: Vec<[u8; 32]> = vec![];
+    let mut output_roots: Vec<[u8; 32]> = vec![];
 
-    fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
-    fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
-    fs::create_dir_all("trace/witness").unwrap(); // make sure the 'witness' directory exists
-    fs::create_dir_all("trace/tags").unwrap(); // make sure the 'tags' directory exists
-    fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
+    // Fix these for now.
+    let input_len = 4096;
+    let output_len = 4096;
 
-    let zero_val = [0u8; 32];
-    let mut mem_tree = Tree::new_with_default(mem_len, zero_val.into()).unwrap();
+    if input_bytes.len() > input_len {
+        panic!("too long input");
+    }
+    if exp_output_bytes.len() > output_len {
+        panic!("too long output");
+    }
+
+    let mut input_tree = Tree::new_with_default(input_len, zero_val.into()).unwrap();
+    let mut output_tree = Tree::new_with_default(output_len, zero_val.into()).unwrap();
+
+    // Start at 1.
+    let start_index = processor::to_mem_repr(1);
+
+    for i in (0..input_bytes.len()).step_by(WORD_SIZE) {
+        let w: [u8; 4] = input_bytes[i..i + WORD_SIZE].try_into().unwrap();
+        let mem = to_mem_repr(w);
+        let index = 1 + i / WORD_SIZE;
+        input_tree.set_leaf(index, mem);
+    }
+
+    // Start index is 1.
+    input_tree.set_leaf(0, start_index.clone());
+    input_tree.commit();
+
+    for i in (0..exp_output_bytes.len()).step_by(WORD_SIZE) {
+        let w: [u8; 4] = exp_output_bytes[i..i + WORD_SIZE].try_into().unwrap();
+        let b = u32::from_le_bytes(w);
+        let mem = to_mem_repr(w);
+        let index = 1 + i / WORD_SIZE;
+        output_tree.set_leaf(index, mem);
+    }
+
+    // Start index.
+    output_tree.set_leaf(0, start_index);
+    output_tree.commit();
+
     let start = Instant::now();
 
     {
@@ -108,6 +267,8 @@ fn main() {
             duration,
         );
         roots.push(start_root);
+        input_roots.push(input_tree.root());
+        output_roots.push(output_tree.root());
 
         println!("creating program scripts");
         let program_end = program.program_range.end;
@@ -118,7 +279,7 @@ fn main() {
             }
             first = false;
 
-            if addr % (1024*10) == 0 {
+            if addr % (1024 * 10) == 0 {
                 println!("script {addr}/{program_end}");
             }
 
@@ -162,7 +323,7 @@ fn main() {
             let pc_str = format!("{:05x}", addr);
             let v = if opcode.major == MajorType::ECall {
                 // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
-                let desc_in = outputter.ecall_read(x);
+                let desc_in = outputter.ecall_read();
 
                 if cargs.write {
                     let mut script_file =
@@ -171,7 +332,7 @@ fn main() {
                     write!(script_file, "{}", desc_in.script).unwrap();
                 }
 
-                let desc_out = outputter.ecall_write(exp_output);
+                let desc_out = outputter.ecall_write();
                 if cargs.write {
                     let mut script_file = File::create(format!(
                         "trace/script/pc_{}_ecall_output_script.txt",
@@ -208,27 +369,6 @@ fn main() {
         let tn = trace.lock().unwrap().len();
         println!("trace length: {} ({:x})", tn, tn);
     }
-    println!("output: {:?}", output);
-    if !cargs.skip_check_output {
-        let output_bytes: [u8; 4] = output.try_into().unwrap();
-        let actual_output = u32::from_le_bytes(output_bytes);
-        if actual_output != exp_output {
-            panic!(
-                "actual {} and expected {} output differ",
-                actual_output, exp_output
-            );
-        }
-    }
-
-    let mut input_hasher = Sha256::new();
-    let input_mem_repr = processor::to_mem_repr(x);
-    input_hasher.update(input_mem_repr.clone());
-    let input_hash = input_hasher.finalize();
-
-    let mut output_hasher = Sha256::new();
-    let output_mem_repr = processor::to_mem_repr(exp_output);
-    output_hasher.update(output_mem_repr.clone());
-    let output_hash = output_hasher.finalize();
 
     //let zero_val = to_script_num(0u32.to_le_bytes());
     //let zero_val = 0u32.to_le_bytes();
@@ -236,6 +376,8 @@ fn main() {
     // We'll keep two active merkle trees in order to prove the state of the computation before and
     // after each instruction. One is altered by the trace events, while the other is build from the bitcoin instruction processor.
     let mut script_tree = mem_tree.clone();
+    let mut script_input_tree = input_tree.clone();
+    let mut script_output_tree = output_tree.clone();
 
     // (pc, insn)
     let mut current_insn: (u32, u32) = (0, 0);
@@ -249,18 +391,71 @@ fn main() {
     let mut ins = 0;
     // TODO: check number of insstart to determine progress instead.
     let mut tot_ins = 0;
-    for (_i, e) in trace.lock().unwrap().iter().enumerate() {
-        match e {
-            // A new instruction is starting.
-            TraceEvent::InstructionStart { cycle, pc, insn } => {
-                tot_ins += 1;
+    let mut tot_reads = 0;
+    {
+        let mut trace_mut = trace.lock().unwrap();
+        let trace_vec = trace_mut.deref_mut();
+        let trace_len = trace_vec.len();
+        let mut prev_io = false;
+        for i in 0..trace_len {
+            let ev = &trace_vec[i];
+            match ev {
+                Event::MemoryEvent { e } => {
+                    match e {
+                        TraceEvent::InstructionStart { cycle, pc, insn } => {
+                            tot_ins += 1;
+
+                            // If previous was an IO event, swap the order, such that the
+                            // InstructionStart event goes first.
+                            if prev_io {
+                                trace_vec.swap(i - 1, i);
+                            }
+                        }
+                        _ => {}
+                    }
+                    prev_io = false;
+                }
+                Event::ReadEvent { cnt } => {
+                    tot_reads += 1;
+                    prev_io = true;
+                }
+                Event::WriteEvent { cnt } => {
+                    tot_reads += 1;
+                    prev_io = true;
+                }
             }
-            _ => {}
         }
     }
 
-    for (_i, e) in trace.lock().unwrap().iter().enumerate() {
-        //println!("iteration[{}]={:?}", i, e);
+    println!("tot_ins={} tot_reads={}", tot_ins, tot_reads);
+
+    'outer: for (_i, ev) in trace.lock().unwrap().iter().enumerate() {
+        let e = match ev {
+            Event::ReadEvent { cnt } => {
+                // Read event cnt was executed, increment counter.
+                let next_cnt = *cnt as u32 + 1;
+
+                // Since the next index to read is what we store, and indexes start at 1, it will
+                // be +1 the next counter.
+                let next_index = next_cnt + 1;
+                let mem_index = processor::to_mem_repr(next_index);
+                input_tree.set_leaf(0, mem_index);
+                continue 'outer;
+            }
+            Event::WriteEvent { cnt } => {
+                // Read event cnt was executed, increment counter.
+                let next_cnt = *cnt as u32 + 1;
+
+                // Since the next index to read is what we store, and indexes start at 1, it will
+                // be +1 the next counter.
+                let next_index = next_cnt + 1;
+                let mem_index = processor::to_mem_repr(next_index);
+                output_tree.set_leaf(0, mem_index);
+                continue 'outer;
+            }
+
+            Event::MemoryEvent { e } => e,
+        };
 
         match e {
             // A new instruction is starting.
@@ -269,7 +464,11 @@ fn main() {
                 // before this instruction is executed, hence the post-state of the previous instruction.
                 set_register(&mut mem_tree, REG_MAX, *pc);
                 let root = mem_tree.commit();
+                let input_root = input_tree.commit();
+                let output_root = output_tree.commit();
                 roots.push(root);
+                input_roots.push(input_root);
+                output_roots.push(output_root);
 
                 //println!("new root[{} cycle={}]={}", ins, *cycle, hex::encode(root));
 
@@ -290,8 +489,12 @@ fn main() {
                             ins_str += format!("_{i}").as_str();
                         }
 
-                        let (mut witness, mut w_tags) =
-                            desc.witness_gen.generate_witness(&mut script_tree, root);
+                        let (mut witness, mut w_tags) = desc.witness_gen.generate_witness(
+                            &mut script_tree,
+                            &mut script_input_tree,
+                            &mut script_output_tree,
+                            root,
+                        );
 
                         // TODO: just temp hack to indicate wrong ecall type
                         if w_tags.len() == 0 {
@@ -299,22 +502,26 @@ fn main() {
                         }
 
                         // We always add input and output to the witness.
-                        witness.push(hex::encode(input_mem_repr.clone()));
-                        witness.push(hex::encode(output_mem_repr.clone()));
+                        let input_start_root = input_roots[input_roots.len() - 2];
+                        let input_end_root = input_roots[input_roots.len() - 1];
+                        let output_start_root = output_roots[output_roots.len() - 2];
+                        let output_end_root = output_roots[output_roots.len() - 1];
+
+                        witness.push(hex::encode(input_start_root));
+                        witness.push(hex::encode(output_start_root));
 
                         w_tags.extend(desc.tags.clone().into_iter());
-                        w_tags.insert(hex::encode(input_hash), "input_hash".to_string());
                         w_tags.insert(
-                            hex::encode(input_mem_repr.clone()),
-                            "input_bytes".to_string(),
+                            hex::encode(input_start_root),
+                            "input_start_root".to_string(),
                         );
-
-                        w_tags.insert(hex::encode(output_hash), "output_hash".to_string());
+                        w_tags.insert(hex::encode(input_end_root), "input_end_root".to_string());
 
                         w_tags.insert(
-                            hex::encode(output_mem_repr.clone()),
-                            "output_bytes".to_string(),
+                            hex::encode(output_start_root),
+                            "output_start_root".to_string(),
                         );
+                        w_tags.insert(hex::encode(output_end_root), "output_end_root".to_string());
 
                         //    if pcc == 0x143bb8 {
                         let pc_str = format!("{:05x}", pcc);
@@ -328,8 +535,24 @@ fn main() {
                         let mut hasher = Sha256::new();
                         let start_root = roots[roots.len() - 2];
                         let end_root = roots[roots.len() - 1];
-                        hasher.update(input_hash);
-                        hasher.update(output_hash);
+
+                        let rootCat = [start_root, end_root].concat();
+                        w_tags.insert(hex::encode(rootCat), "start_root|end_root".to_string());
+                        let inputCat = [input_start_root, input_end_root].concat();
+                        w_tags.insert(
+                            hex::encode(inputCat),
+                            "input_start_root|input_end_root".to_string(),
+                        );
+                        let outputCat = [output_start_root, output_end_root].concat();
+                        w_tags.insert(
+                            hex::encode(outputCat),
+                            "output_start_root|output_end_root".to_string(),
+                        );
+
+                        hasher.update(input_start_root);
+                        hasher.update(input_end_root);
+                        hasher.update(output_start_root);
+                        hasher.update(output_end_root);
                         hasher.update(start_root);
                         hasher.update(end_root);
                         let hash = hasher.finalize();
@@ -376,6 +599,18 @@ fn main() {
                 let r2 = hex::encode(mem_tree.root());
                 if r1 != r2 {
                     panic!("root mismatch: {} vs {}", r1, r2);
+                }
+
+                let i1 = hex::encode(script_input_tree.root());
+                let i2 = hex::encode(input_tree.root());
+                if i1 != i2 {
+                    panic!("input root mismatch: {} vs {}", i1, i2);
+                }
+
+                let o1 = hex::encode(script_output_tree.root());
+                let o2 = hex::encode(output_tree.root());
+                if o1 != o2 {
+                    panic!("output root mismatch: {} vs {}", o1, o2);
                 }
 
                 //let opcode = OpCode::decode(*insn, *pc).unwrap();
