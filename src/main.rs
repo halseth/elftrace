@@ -70,7 +70,6 @@ impl Read for CountReader {
             return Err(Error::from(io::ErrorKind::UnexpectedEof));
         }
 
-        println!("rad cnt {}", self.cnt);
         self.trace
             .lock()
             .unwrap()
@@ -102,7 +101,6 @@ impl Write for CountWriter {
 
         let w = u32::from_le_bytes(buf[..4].try_into().unwrap());
 
-        println!("write cnt {}", self.cnt);
         self.trace
             .lock()
             .unwrap()
@@ -144,13 +142,6 @@ fn main() {
     let mtxs = Arc::new(Mutex::new(Vec::new()));
     let trace: Arc<Mutex<Vec<Event>>> = mtxs.clone();
 
-    if input_bytes.len() % 4 != 0 {
-        panic!("input must be divisible by 4");
-    }
-    if exp_output_bytes.len() % 4 != 0 {
-        panic!("output must be divisible by 4");
-    }
-
     fs::create_dir_all("trace").unwrap(); // make sure the 'trace' directory exists
     fs::create_dir_all("trace/script").unwrap(); // make sure the 'script' directory exists
     fs::create_dir_all("trace/witness").unwrap(); // make sure the 'witness' directory exists
@@ -158,27 +149,52 @@ fn main() {
     fs::create_dir_all("trace/commitment").unwrap(); // make sure the 'commitments' directory exists
 
     let mut vec32 = Vec::new();
-    for i in (0..input_bytes.len()).step_by(4) {
-        let b: [u8; 4] = input_bytes[i..i + 4].try_into().unwrap();
+
+    // We start by writing the input length.
+    let len = input_bytes.len();
+    vec32.push(len as u32);
+
+    // Then we'll convert the input bytes to a vector of u32, padding it with zeroes if needed.
+    let mut vec8 = Vec::new();
+    for i in 0..input_bytes.len() {
+        vec8.push(input_bytes[i]);
+    }
+
+    while vec8.len() % 4 != 0 {
+        vec8.push(0);
+    }
+
+    for i in (0..vec8.len()).step_by(4) {
+        let b: [u8; 4] = vec8[i..i + 4].try_into().unwrap();
         let w = u32::from_le_bytes(b);
         vec32.push(w);
     }
 
     let creader = CountReader {
-        data: vec32,
+        data: vec32.clone(),
         cnt: 0,
         trace: trace.clone(),
     };
 
+    // The output will also be written as u32, so we'll convert our epected output to that format.
+    let mut vec8_output = Vec::new();
+    for i in 0..exp_output_bytes.len() {
+        vec8_output.push(exp_output_bytes[i]);
+    }
+
+    while vec8_output.len() % 4 != 0 {
+        vec8_output.push(0);
+    }
+
     let mut vec32_output = Vec::new();
-    for i in (0..exp_output_bytes.len()).step_by(4) {
-        let b: [u8; 4] = exp_output_bytes[i..i + 4].try_into().unwrap();
+    for i in (0..vec8_output.len()).step_by(4) {
+        let b: [u8; 4] = vec8_output[i..i + 4].try_into().unwrap();
         let w = u32::from_le_bytes(b);
         vec32_output.push(w);
     }
 
     let mut cwriter = CountWriter {
-        data: vec32_output,
+        data: vec32_output.clone(),
         cnt: 0, // start at 0, but index is +1
         trace: trace.clone(),
     };
@@ -228,10 +244,9 @@ fn main() {
     // Start at 1.
     let start_index = processor::to_mem_repr(1);
 
-    for i in (0..input_bytes.len()).step_by(WORD_SIZE) {
-        let w: [u8; 4] = input_bytes[i..i + WORD_SIZE].try_into().unwrap();
-        let mem = to_mem_repr(w);
-        let index = 1 + i / WORD_SIZE;
+    for (i, w) in vec32.iter().enumerate() {
+        let mem = to_mem_repr(w.to_le_bytes());
+        let index = 1 + i;
         input_tree.set_leaf(index, mem);
     }
 
@@ -239,11 +254,9 @@ fn main() {
     input_tree.set_leaf(0, start_index.clone());
     input_tree.commit();
 
-    for i in (0..exp_output_bytes.len()).step_by(WORD_SIZE) {
-        let w: [u8; 4] = exp_output_bytes[i..i + WORD_SIZE].try_into().unwrap();
-        let b = u32::from_le_bytes(w);
-        let mem = to_mem_repr(w);
-        let index = 1 + i / WORD_SIZE;
+    for (i, w) in vec32_output.iter().enumerate() {
+        let mem = to_mem_repr(w.to_le_bytes());
+        let index = 1 + i;
         output_tree.set_leaf(index, mem);
     }
 
