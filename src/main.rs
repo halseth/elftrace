@@ -46,7 +46,11 @@ struct Args {
 
     /// Write scripts to file.
     #[arg(short, long)]
-    write: bool,
+    #[clap(default_value = "0")]
+    write_step: u64,
+
+    #[arg(short, long)]
+    write_all: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +71,7 @@ impl Read for CountReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.cnt >= self.data.len() {
             //return Err(io::ErrorKind::UnexpectedEof);
+            panic!("cnt({})>len({})", self.cnt, self.data.len());
             return Err(Error::from(io::ErrorKind::UnexpectedEof));
         }
 
@@ -337,33 +342,11 @@ fn main() {
             let v = if opcode.major == MajorType::ECall {
                 // Since we don't know which ecall is being requested before having access to memory, we generate all, and have the prover decide which one to run.
                 let desc_in = outputter.ecall_read();
-
-                if cargs.write {
-                    let mut script_file =
-                        File::create(format!("trace/script/pc_{}_ecall_input_script.txt", pc_str))
-                            .unwrap();
-                    write!(script_file, "{}", desc_in.script).unwrap();
-                }
-
                 let desc_out = outputter.ecall_write();
-                if cargs.write {
-                    let mut script_file = File::create(format!(
-                        "trace/script/pc_{}_ecall_output_script.txt",
-                        pc_str
-                    ))
-                    .unwrap();
-                    write!(script_file, "{}", desc_out.script).unwrap();
-                }
 
                 vec![desc_in, desc_out]
             } else {
                 let desc = process_instruction(&mut outputter, insn).unwrap();
-                if cargs.write {
-                    let mut script_file =
-                        File::create(format!("trace/script/pc_{}_script.txt", pc_str)).unwrap();
-                    write!(script_file, "{}", desc.script).unwrap();
-                }
-
                 vec![desc]
             };
 
@@ -487,11 +470,12 @@ fn main() {
 
                 let pcc = current_insn.0;
                 if pcc != 0 {
+                    let opcode = OpCode::decode(current_insn.1, pcc).unwrap();
                     let v_desc = match scripts.get(&pcc) {
                         Some(d) => d,
                         None => {
                             //println!("next opcode {:x}: {:?}", *pc, opcode);
-                            let opcode = OpCode::decode(current_insn.1, pcc).unwrap();
+                            //let opcode = OpCode::decode(current_insn.1, pcc).unwrap();
                             panic!("not found: {:?} ins={:x} pc={:x}", opcode, ins, pcc);
                         }
                     };
@@ -538,11 +522,19 @@ fn main() {
 
                         //    if pcc == 0x143bb8 {
                         let pc_str = format!("{:05x}", pcc);
-                        if cargs.write {
+                        if cargs.write_all || cargs.write_step == ins {
                             let witness_file_name =
                                 format!("trace/witness/ins_{}_pc_{}_witness.txt", ins_str, pc_str);
                             let mut witness_file = File::create(witness_file_name.clone()).unwrap();
                             write!(witness_file, "{}", witness.join("\n")).unwrap();
+
+                            let mut script_file = File::create(format!(
+                                "trace/script/pc_{}_script_{}.txt",
+                                pc_str, i,
+                            ))
+                            .unwrap();
+
+                            write!(script_file, "{}", desc.script).unwrap();
                         }
 
                         let mut hasher = Sha256::new();
@@ -579,7 +571,7 @@ fn main() {
 
                         w_tags.insert(hex::encode(hash_array), "commitment".to_string());
 
-                        if cargs.write {
+                        if cargs.write_all || cargs.write_step == ins {
                             let tags_file = File::create(format!(
                                 "trace/tags/ins_{}_pc_{}_tags.json",
                                 ins_str, pc_str
