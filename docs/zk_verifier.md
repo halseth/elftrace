@@ -24,6 +24,10 @@ refer to that for a more detailed break down. High level: we commit to the
 execution trace of an arbitrary computation using a merkle tree, and utilize
 fraud proofs to penalize a player performing the execution incorrectly.
 
+In this post we'll only explore the RISC-V binary verification in Script, and
+refer to the above resources for more details on the full challenge-response
+part of MATT.
+
 ### Rust and RISC-V
 We can write the contract much like we would write any other Rust project, as
 long as we adhere to the limitations of our limited bare-metal target.
@@ -87,14 +91,15 @@ Check out the project in
 [zkfibonacci-rs](https://github.com/halseth/zkfibonacci-rs), which cointains
 the boilerplate and actual program code. Some interesting details:
 
-- .cargo/config.toml: The build target is specified as
+- `.cargo/config.toml`: The build target is specified as
   "riscv32i-unknown-none-elf". This instructs the Rust compiler to build a
   binary for a RISC-V 32-bit bare-metal architecture.
-- src/asm/init.s: Since we are targetting a bare-metal platform, we need an
+- `src/asm/init.s`: Since we are targetting a bare-metal platform, we need an
   inline assembly entry point to start up the program.
-- Folders src/env+serde+utils: Code grabbed from the RISC0 project for working
+- Folders `src/env+serde+utils`: Code grabbed from the RISC0 project for working
   with input-output when running on the RISC0 VM.
-- src/air.rs: The fibonacci sequence verification logic copied from Winterfell.
+- `src/air.rs`: The fibonacci sequence verification logic copied from Winterfell.
+- `src/main.rs`: The `runcontract` function is our actual contract.
 
 With the boilerplate in place, and the example copied from Winterfell, there is
 not much to it. We'll read the ZK proof from STDIO, call the Winterfell
@@ -138,7 +143,7 @@ This should produce an output like
 final root[32408382]=304bf600142a48a004781316c62c809429bb4cc4bc9315c82262b27f043f9f50
 ```
 
-Which is the final merkle root committing to the executional trace. When using
+which is the final merkle root committing to the executional trace. When using
 MATT as a way of writing on-chain smart contracts, this is what the runner of
 the smart contract will have to put on-chain together with the inputs to the
 contract (in this case that is the ZK proof). If the computation was done
@@ -172,7 +177,7 @@ wouldn't actually expect the prover to be able to execute it at this point,
 because wehy would he then be challenged in the first place?
 
 ## Conclusion
-We've shown an example of how we can write a XK verifier in Rust, compile it
+We've shown an example of how we can write a ZK verifier in Rust, compile it
 for a RISC-V target, and use Bitcoin Script to verify its execution. In order
 to achieve this we need a covenant like `OP_CHECKCONTRACTVERIFY` to carry state
 across transactions. To make this efficient on-chain the verification must be
