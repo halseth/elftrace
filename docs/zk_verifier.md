@@ -126,7 +126,7 @@ git clone git@github.com:halseth/winterfell.git
 cd winterfell 
 git checkout c8aa78cc9842d0edcd211f87dddd97898495936d
 cargo build --release
-./target/release/winterfell fib -n 16
+./target/release/winterfell --hash_fn blake3_192 fib -n 16
 ```
 
 Now that we got the proof, we can pass it as input to the program, and run it
