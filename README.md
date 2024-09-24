@@ -8,7 +8,8 @@ verify this execution on-chain.
 
 ## How do I use it?
 See the [compilation doc](./docs/compile.md) for an example of how to trace a
-RISC-V binary.
+RISC-V binary, or the [ZK verification example](./docs/zk_verifier.md) for how
+to write a STARK verifier in Rust that can be traced.
 
 ## What is this useful for?
 Using this you can use your favourite language to write arbitrary programs that
