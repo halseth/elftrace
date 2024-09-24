@@ -315,9 +315,6 @@ fn main() {
 
             // TODO: not yet implemented, we skip them until we see them encountered in a real
             // execution.
-            if opcode.mnemonic == "SLTI" {
-                continue;
-            }
             if opcode.mnemonic == "LB" {
                 continue;
             }

@@ -6584,7 +6584,8 @@ impl InstructionProcessor for BitcoinInstructionProcessor {
     }
 
     fn process_slti(&mut self, dec_insn: IType) -> Self::InstructionResult {
-        todo!()
+        // TODO: should do proper signed/unsigned comparison.
+        self.process_sltui(dec_insn)
     }
 
     fn process_sltui(&mut self, dec_insn: IType) -> Self::InstructionResult {
