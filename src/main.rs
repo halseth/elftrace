@@ -42,11 +42,14 @@ struct Args {
     #[arg(short, long)]
     skip_check_output: bool,
 
-    /// Write scripts to file.
+    /// Write scripts at this step to file.
     #[arg(long)]
     #[clap(default_value = "0")]
     write_step: u64,
 
+    /// Write scripts for ALL steps to file.
+    /// CAUTION: for large programs you can end up with a large amount of tiny files that can clog
+    /// your file system.
     #[arg(long)]
     write_all: bool,
 }
