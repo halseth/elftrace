@@ -1,5 +1,3 @@
-#![feature(bigint_helper_methods)]
-
 use bitcoin::script::write_scriptint;
 use clap::Parser;
 use fast_merkle::Tree;
