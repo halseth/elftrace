@@ -43,11 +43,11 @@ struct Args {
     skip_check_output: bool,
 
     /// Write scripts to file.
-    #[arg(short, long)]
+    #[arg(long)]
     #[clap(default_value = "0")]
     write_step: u64,
 
-    #[arg(short, long)]
+    #[arg(long)]
     write_all: bool,
 }
 
