@@ -175,7 +175,7 @@ Disassembly of section .text:
 Now we will take the executable we just created and trace it.
 
 ```bash
-$ cargo run -- ./examples/multiply.elf 2
+$ cargo run -- --binary ./examples/multiply.elf --input 02 --output 0200 --write-all
 ```
 
 This will run the program on the RISC Zero ZKVM with input x=2, and produce an
@@ -185,22 +185,30 @@ transitions done for each step of the computation.
 
 Let's take a look at the files found in the `trace` folder:
 ```bash
-$ ls trace/
-ins_0001_pc_10074_commitment.txt
-ins_0001_pc_10074_tags.json
-ins_0001_pc_10074_witness.txt
-ins_0002_pc_10078_commitment.txt
-ins_0002_pc_10078_tags.json
-ins_0002_pc_10078_witness.txt
+$ ls trace/commitment/
+ins_0001_0_pc_10074_commitment.txt
+ins_0002_0_pc_10078_commitment.txt
+ins_0003_0_pc_1007c_commitment.txt
+ins_0004_0_pc_10080_commitment.txt
 ...
-pc_10074_script.txt
-pc_10078_script.txt
-pc_1007c_script.txt
-pc_10080_script.txt
-pc_10084_script.txt
+$ ls trace/script/
+pc_10074_script_0.txt
+pc_10078_script_0.txt
+pc_1007c_script_0.txt
+pc_10080_script_0.txt
 ...
-pc_10108_script.txt
-pc_1010c_script.txt
+$ ls trace/tags/
+ins_0001_0_pc_10074_tags.json
+ins_0002_0_pc_10078_tags.json
+ins_0003_0_pc_1007c_tags.json
+ins_0004_0_pc_10080_tags.json
+...
+$ ls trace/witness/
+13:54 ins_0001_0_pc_10074_witness.txt
+13:54 ins_0002_0_pc_10078_witness.txt
+13:54 ins_0003_0_pc_1007c_witness.txt
+13:54 ins_0004_0_pc_10080_witness.txt
+...
 ```
 
 The `pc_*_script.txt` files are Bitcoin tapscripts that uses
@@ -222,5 +230,5 @@ witness.
 
 For example using tapsim (you must have [Tapsim](https://github.com/halseth/tapsim) as well as the tool `tweak` installed):
 ```bash
-tapsim execute --script "trace/pc_1008c_script.txt" --witness "trace/ins_0006_pc_1008c_witness.txt" --tagfile "trace/ins_0006_pc_1008c_tags.json" --colwidth=80 --rows=45 --inputkey "`tweak --merkle "\`cat trace/ins_0006_pc_1008c_commitment.txt\`" --key "nums" | sed -n 4p | awk -F" " '{print $2}'`"
+tapsim execute --script "trace/script/pc_1008c_script_0.txt" --witness "trace/witness/ins_0006_0_pc_1008c_witness.txt" --tagfile "trace/tags/ins_0006_0_pc_1008c_tags.json" --colwidth=80 --rows=45 --inputkey "`tweak --merkle "\`cat trace/commitment/ins_0006_0_pc_1008c_commitment.txt\`" --key "nums" | sed -n 4p | awk -F" " '{print $2}'`"
 ```
